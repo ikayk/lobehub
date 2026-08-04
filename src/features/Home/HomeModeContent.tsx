@@ -1,7 +1,9 @@
 import type { TaskStatus } from '@lobechat/types';
+import { agentDisplayName } from '@lobechat/types';
+import type { FlexboxProps } from '@lobehub/ui';
 import { Avatar, Flexbox, Icon, Skeleton, Text } from '@lobehub/ui';
 import { createStaticStyles, cssVar, cx } from 'antd-style';
-import { HashIcon, ListTodoIcon } from 'lucide-react';
+import { HashIcon } from 'lucide-react';
 import { memo, type ReactNode, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -13,6 +15,7 @@ import HomeInbox from '@/features/HomeInbox';
 import { filterTopicsForInboxScope } from '@/features/HomeInbox/scopeTogglePlacement';
 import { splitBriefs } from '@/features/HomeInbox/splitBriefs';
 import { useHomeInboxTopics } from '@/features/HomeInbox/useHomeInboxTopics';
+import Recommendations from '@/features/Recommendations';
 import WorkspaceLink from '@/features/Workspace/WorkspaceLink';
 import { useClientDataSWR } from '@/libs/swr';
 import { recentKeys } from '@/libs/swr/keys';
@@ -44,20 +47,25 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
     color: ${cssVar.colorTextTertiary};
   `,
   row: css`
-    min-width: 0;
-    margin-inline: -10px;
-    padding-block: 9px;
-    padding-inline: 10px;
     border-radius: ${cssVar.borderRadiusLG};
-
     color: inherit;
     text-decoration: none;
-
     transition: background ${cssVar.motionDurationFast};
 
     &:hover {
       background: ${cssVar.colorFillQuaternary};
     }
+  `,
+  /**
+   * Box metrics shared by a real row and its skeleton, so the placeholder
+   * occupies exactly the space its content will. Kept apart from `row` because
+   * the skeleton must not pick up the hover affordance — nothing to click yet.
+   */
+  rowBox: css`
+    min-width: 0;
+    margin-inline: -10px;
+    padding-block: 9px;
+    padding-inline: 10px;
   `,
   rowText: css`
     flex: 1;
@@ -70,6 +78,12 @@ const styles = createStaticStyles(({ css, cssVar }) => ({
 }));
 
 interface HomeModeContentProps {
+  /**
+   * The rail is folded away, so this column carries the sections it owns: what
+   * is in flight and what happened stay above the recent topics, and the
+   * suggestions — nothing that happened, only what you could do — land after.
+   */
+  inlineRail?: boolean;
   mode: HomeMode;
   onSuggestionSelect: (prompt: string) => void;
 }
@@ -97,7 +111,7 @@ const normalizeTaskStatus = (status: string): TaskStatus =>
   TASK_STATUSES.has(status as TaskStatus) ? (status as TaskStatus) : 'backlog';
 
 const Row = memo<RowProps>(({ description, href, icon, title, trailing }) => (
-  <WorkspaceLink className={styles.row} to={href}>
+  <WorkspaceLink className={cx(styles.rowBox, styles.row)} to={href}>
     <Flexbox horizontal align={'flex-start'} gap={12}>
       <Flexbox flex={'none'} paddingBlock={3}>
         {icon}
@@ -133,7 +147,7 @@ const RecentTopicRow = memo<{ topic: RecentItem }>(({ topic }) => {
             className={styles.topicAvatar}
             shape={'circle'}
             size={22}
-            title={agent.title}
+            title={agentDisplayName(agent)}
           />
         ) : (
           <Icon color={cssVar.colorTextDescription} icon={HashIcon} size={16} />
@@ -143,24 +157,63 @@ const RecentTopicRow = memo<{ topic: RecentItem }>(({ topic }) => {
   );
 });
 
-const LoadingRows = ({ icon = HashIcon }: { icon?: typeof HashIcon }) => (
-  <Flexbox gap={1}>
-    {[
-      ['62%', '24%'],
-      ['48%', '20%'],
-      ['70%', '27%'],
-    ].map(([titleWidth, descriptionWidth], index) => (
-      <Flexbox aria-hidden horizontal className={styles.row} gap={12} key={index}>
-        <Flexbox flex={'none'} paddingBlock={3}>
-          <Icon color={cssVar.colorTextDescription} icon={icon} size={16} />
-        </Flexbox>
-        <Flexbox flex={1} gap={5}>
-          <Skeleton.Button active size={'small'} style={{ height: 14, width: titleWidth }} />
-          <Skeleton.Button active size={'small'} style={{ height: 11, width: descriptionWidth }} />
-        </Flexbox>
-      </Flexbox>
-    ))}
+interface SkeletonLineProps {
+  /** Height of the painted band inside the line box. */
+  bar: number;
+  flex?: FlexboxProps['flex'];
+  /** Line-height of the text role this stands in for, from {@link homeType}. */
+  line: number;
+  width: number | string;
+}
+
+/**
+ * A skeleton bar centred in the exact line box of the text it stands in for, so
+ * the row already has its final height and nothing reflows when data lands.
+ */
+const SkeletonLine = memo<SkeletonLineProps>(({ bar, flex, line, width }) => (
+  <Flexbox align={'flex-start'} flex={flex} height={line} justify={'center'}>
+    <Skeleton.Block active height={bar} width={width} />
   </Flexbox>
+));
+
+/**
+ * Widths per row, shaped like the content they precede: a short name over a
+ * longer sentence. Uneven rows read as "a list is coming", not as a filled block.
+ */
+const SKELETON_ROWS = [
+  { description: '86%', title: '38%' },
+  { description: '64%', title: '27%' },
+  { description: '92%', title: '48%' },
+];
+
+/**
+ * Loading placeholder for {@link Row}. It mirrors the real row exactly — same
+ * padding, same 12px lead gap, same line boxes — and keeps every element a
+ * skeleton: a concrete leading icon would read as already-loaded content and
+ * then be swapped for an avatar, which is precisely the wrong promise to make.
+ */
+const LoadingRows = memo<{ avatarSize?: number; withTime?: boolean }>(
+  ({ avatarSize = 22, withTime }) => (
+    <Flexbox aria-hidden gap={4}>
+      {SKELETON_ROWS.map(({ description, title }, index) => (
+        <Flexbox horizontal align={'flex-start'} className={styles.rowBox} gap={12} key={index}>
+          <Flexbox flex={'none'} paddingBlock={3}>
+            <Skeleton.Avatar
+              active
+              className={styles.topicAvatar}
+              shape={'circle'}
+              size={avatarSize}
+            />
+          </Flexbox>
+          <Flexbox className={styles.rowText} gap={3}>
+            <SkeletonLine bar={14} line={22} width={title} />
+            <SkeletonLine bar={12} line={20} width={description} />
+          </Flexbox>
+          {withTime && <SkeletonLine bar={10} flex={'none'} line={18} width={52} />}
+        </Flexbox>
+      ))}
+    </Flexbox>
+  ),
 );
 
 const TaskContent = memo(() => {
@@ -177,7 +230,7 @@ const TaskContent = memo(() => {
       {tasksSWR.error && !tasksInit ? (
         <AsyncError error={tasksSWR.error} variant={'inline'} onRetry={tasksSWR.mutate} />
       ) : !tasksInit ? (
-        <LoadingRows icon={ListTodoIcon} />
+        <LoadingRows avatarSize={16} />
       ) : tasks.length === 0 ? (
         <Text className={styles.empty}>{t('dashboard.task.empty')}</Text>
       ) : (
@@ -197,7 +250,7 @@ const TaskContent = memo(() => {
   );
 });
 
-const HomeModeContent = memo<HomeModeContentProps>(({ mode, onSuggestionSelect }) => {
+const HomeModeContent = memo<HomeModeContentProps>(({ inlineRail, mode, onSuggestionSelect }) => {
   const { t } = useTranslation('home');
   const isLogin = useUserStore(authSelectors.isLogin);
   const authLoaded = useUserStore(authSelectors.isLoaded);
@@ -219,9 +272,9 @@ const HomeModeContent = memo<HomeModeContentProps>(({ mode, onSuggestionSelect }
     [inboxTopics.running, myId],
   );
   const useFetchBriefs = useBriefStore((s) => s.useFetchBriefs);
-  const briefsSWR = useFetchBriefs(isLogin);
-  const briefs = useBriefStore(briefListSelectors.briefs);
-  const briefsInit = useBriefStore(briefListSelectors.isBriefsInit);
+  const briefsSWR = useFetchBriefs(isLogin, cacheScope);
+  const briefs = useBriefStore(briefListSelectors.briefs(cacheScope));
+  const briefsInit = useBriefStore(briefListSelectors.isBriefsInit(cacheScope));
   const needsYouCount = useMemo(() => splitBriefs(briefs).needsYou.length, [briefs]);
   const topicRecents = recentsSWR.data ?? [];
 
@@ -239,17 +292,32 @@ const HomeModeContent = memo<HomeModeContentProps>(({ mode, onSuggestionSelect }
         (briefsInit || Boolean(briefsSWR.error)),
     });
 
-    if (state === 'empty') return <EmptySuggestions onSelect={onSuggestionSelect} />;
+    // The empty short-circuit predates the fold-in: with the rail open it only
+    // skips the main column's own blocks, while news and suggestions live on in
+    // the rail. Folded, it would swallow them too — news needs no activity to
+    // exist. Mirror the expanded page instead: suggestions first, then whatever
+    // folded in (both sections render null when there is nothing to carry).
+    if (state === 'empty') {
+      if (!inlineRail) return <EmptySuggestions onSelect={onSuggestionSelect} />;
+
+      return (
+        <Flexbox gap={32}>
+          <EmptySuggestions onSelect={onSuggestionSelect} />
+          <HomeInbox inlineRail variant={'main'} />
+          <Recommendations variant={'main'} />
+        </Flexbox>
+      );
+    }
 
     return (
       <Flexbox gap={32}>
-        <HomeInbox variant={'main'} />
+        <HomeInbox inlineRail={inlineRail} variant={'main'} />
         {(state !== 'ready' || topicRecents.length > 0) && (
           <GroupBlock count={topicRecents.length || undefined} title={t('dashboard.chat.recents')}>
             {state === 'error' ? (
               <AsyncError error={recentsSWR.error} variant={'inline'} onRetry={recentsSWR.mutate} />
             ) : state === 'loading' ? (
-              <LoadingRows />
+              <LoadingRows withTime />
             ) : (
               <Flexbox gap={4}>
                 {topicRecents.slice(0, 8).map((item) => (
@@ -259,6 +327,7 @@ const HomeModeContent = memo<HomeModeContentProps>(({ mode, onSuggestionSelect }
             )}
           </GroupBlock>
         )}
+        {inlineRail && <Recommendations variant={'main'} />}
       </Flexbox>
     );
   }
@@ -266,7 +335,19 @@ const HomeModeContent = memo<HomeModeContentProps>(({ mode, onSuggestionSelect }
   if (!isLogin) return null;
 
   if (mode === 'task') {
-    return <TaskContent />;
+    if (!inlineRail) return <TaskContent />;
+
+    // The rail's sections sit beside task mode while it is open, so a folded
+    // rail must not take them away here either: in flight and what happened
+    // above the task list, suggestions after it. Unread and needs-you stay
+    // hidden — task mode never surfaces them, folded or not.
+    return (
+      <Flexbox gap={32}>
+        <HomeInbox hideNeedsYou hideUnread inlineRail variant={'main'} />
+        <TaskContent />
+        <Recommendations variant={'main'} />
+      </Flexbox>
+    );
   }
 
   return null;
