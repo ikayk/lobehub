@@ -2,7 +2,7 @@
 
 [![][image-banner]][vercel-link]
 
-# LobeHub test
+# LobeHub
 
 LobeHub organizes your agents into 7×24 operation.
 
