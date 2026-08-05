@@ -4,6 +4,7 @@ on:
   workflow_run:
     workflows: [Upstream Sync]
     types: [completed]
+    branches: [canary]
       
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
