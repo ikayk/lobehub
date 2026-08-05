@@ -1,18 +1,18 @@
 name: Deploy to Vercel (Prebuilt)
 
 on:
-  push:
-    branches:
-      - canary
-  workflow_dispatch:
+  workflow_run:
+    workflows: [Upstream Sync]
+    types: [completed]
       
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
 jobs:
-  Deploy-to-Vercel:
+  on-success:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
     - name: 1. Checkout Code
       uses: actions/checkout@v4
