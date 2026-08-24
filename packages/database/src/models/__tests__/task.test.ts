@@ -524,6 +524,19 @@ describe('TaskModel', () => {
       expect(backlogP2.offset).toBe(2);
     });
 
+    it('should not double-count duplicate statuses in a group', async () => {
+      const model = new TaskModel(serverDB, userId);
+      await model.create({ instruction: 'Backlog task' });
+
+      const [group] = await model.groupList({
+        groups: [{ key: 'backlog', statuses: ['backlog', 'backlog'] }],
+      });
+
+      expect(group.total).toBe(1);
+      expect(group.tasks).toHaveLength(1);
+      expect(group.hasMore).toBe(false);
+    });
+
     it('should filter root tasks only (parentTaskId null)', async () => {
       const model = new TaskModel(serverDB, userId);
       const parent = await model.create({ instruction: 'Parent' });
@@ -565,6 +578,24 @@ describe('TaskModel', () => {
 
       expect(result[0].total).toBe(1);
       expect(result[0].tasks).toHaveLength(1);
+    });
+
+    it('should exclude runnable automation from ordinary kanban groups', async () => {
+      const model = new TaskModel(serverDB, userId);
+      const manual = await model.create({ instruction: 'Manual task' });
+      await model.create({
+        automationMode: 'schedule',
+        instruction: 'Scheduled task',
+        schedulePattern: '0 9 * * *',
+      });
+
+      const [group] = await model.groupList({
+        automated: false,
+        groups: [{ key: 'backlog', statuses: ['backlog'] }],
+      });
+
+      expect(group.tasks.map((task) => task.id)).toEqual([manual.id]);
+      expect(group.total).toBe(1);
     });
 
     it('should filter tasks by their bound goal entity', async () => {
@@ -735,6 +766,21 @@ describe('TaskModel', () => {
       const updated = await model.updateStatus(task.id, 'running', { startedAt });
       expect(updated!.status).toBe('running');
       expect(updated!.startedAt).toBeDefined();
+    });
+
+    it('should update status only when the current status matches', async () => {
+      const model = new TaskModel(serverDB, userId);
+      const task = await model.create({ instruction: 'Test' });
+      await model.updateStatus(task.id, 'running');
+
+      const completed = await model.updateStatusIfCurrent(task.id, 'running', 'completed', {
+        completedAt: new Date(),
+      });
+      const staleUpdate = await model.updateStatusIfCurrent(task.id, 'running', 'failed');
+
+      expect(completed?.status).toBe('completed');
+      expect(staleUpdate).toBeNull();
+      expect((await model.findById(task.id))?.status).toBe('completed');
     });
   });
 

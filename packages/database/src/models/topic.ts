@@ -1326,20 +1326,31 @@ export class TopicModel {
           status: 'missing' as const,
         };
       }
-      if (runningOperation.operationId !== operationId) {
+      const isRoot = runningOperation.operationId === operationId;
+      const operation = isRoot
+        ? runningOperation
+        : runningOperation.childOperations?.find((child) => child.operationId === operationId);
+      if (!operation) {
         return { activeOperationId: runningOperation.operationId, status: 'conflict' as const };
       }
 
       const metadata = {
         ...existing.metadata,
-        runningOperation: null,
+        runningOperation: isRoot
+          ? null
+          : {
+              ...runningOperation,
+              childOperations: runningOperation.childOperations?.filter(
+                (child) => child.operationId !== operationId,
+              ),
+            },
       } as ChatTopicMetadata;
 
       await tx
         .update(topics)
         .set({
           metadata,
-          ...(existing.status === 'running' ? { status: 'unread' as const } : {}),
+          ...(isRoot && existing.status === 'running' ? { status: 'unread' as const } : {}),
           updatedAt: new Date(),
         })
         .where(and(eq(topics.id, id), this.ownership()));
@@ -1349,10 +1360,11 @@ export class TopicModel {
         assistantMessageId:
           currentMessage?.operationId === operationId
             ? currentMessage.msgId
-            : runningOperation.assistantMessageId,
-        hooks: runningOperation.hooks,
+            : operation.assistantMessageId,
+        hooks: operation.hooks,
+        orchestrationRole: operation.orchestrationRole,
         status: 'settled' as const,
-        threadId: runningOperation.threadId ?? undefined,
+        threadId: operation.threadId ?? undefined,
       };
     });
   };
@@ -1477,6 +1489,163 @@ export class TopicModel {
     });
   };
 
+  appendRunningOperationChild = async (
+    id: string,
+    parentOperationId: string,
+    child: NonNullable<ChatTopicMetadata['runningOperation']>,
+  ): Promise<boolean> =>
+    this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ metadata: topics.metadata })
+        .from(topics)
+        .where(and(eq(topics.id, id), this.ownership()))
+        .for('update');
+      const runningOperation = existing?.metadata?.runningOperation;
+      if (!existing || runningOperation?.operationId !== parentOperationId) return false;
+
+      await tx
+        .update(topics)
+        .set({
+          metadata: {
+            ...existing.metadata,
+            runningOperation: {
+              ...runningOperation,
+              childOperations: [
+                ...(runningOperation.childOperations ?? []).filter(
+                  (operation) => operation.operationId !== child.operationId,
+                ),
+                child,
+              ],
+            },
+          },
+        })
+        .where(and(eq(topics.id, id), this.ownership()));
+      return true;
+    });
+
+  removeRunningOperationChild = async (id: string, operationId: string): Promise<boolean> =>
+    this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ metadata: topics.metadata })
+        .from(topics)
+        .where(and(eq(topics.id, id), this.ownership()))
+        .for('update');
+      const runningOperation = existing?.metadata?.runningOperation;
+      if (!existing || !runningOperation?.childOperations) return false;
+      await tx
+        .update(topics)
+        .set({
+          metadata: {
+            ...existing.metadata,
+            runningOperation: {
+              ...runningOperation,
+              childOperations: runningOperation.childOperations.filter(
+                (child) => child.operationId !== operationId,
+              ),
+            },
+          },
+        })
+        .where(and(eq(topics.id, id), this.ownership()));
+      return true;
+    });
+
+  updateRunningOperationAssistantMessage = async (
+    id: string,
+    operationId: string,
+    assistantMessageId: string,
+  ): Promise<boolean> =>
+    this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ metadata: topics.metadata })
+        .from(topics)
+        .where(and(eq(topics.id, id), this.ownership()))
+        .for('update');
+      const runningOperation = existing?.metadata?.runningOperation;
+      if (!existing || !runningOperation) return false;
+
+      if (runningOperation.operationId === operationId) {
+        await tx
+          .update(topics)
+          .set({
+            metadata: {
+              ...existing.metadata,
+              heteroCurrentMsgId: { msgId: assistantMessageId, operationId },
+              runningOperation: { ...runningOperation, assistantMessageId },
+            },
+          })
+          .where(and(eq(topics.id, id), this.ownership()));
+        return true;
+      }
+
+      const childOperations = runningOperation.childOperations?.map((child) =>
+        child.operationId === operationId ? { ...child, assistantMessageId } : child,
+      );
+      if (!childOperations?.some((child) => child.operationId === operationId)) return false;
+
+      await tx
+        .update(topics)
+        .set({
+          metadata: {
+            ...existing.metadata,
+            heteroCurrentMsgId: { msgId: assistantMessageId, operationId },
+            runningOperation: { ...runningOperation, childOperations },
+          },
+        })
+        .where(and(eq(topics.id, id), this.ownership()));
+      return true;
+    });
+
+  takeRunningOperation = async (
+    id: string,
+    operationId: string,
+  ): Promise<
+    | {
+        isRoot: boolean;
+        operation: NonNullable<ChatTopicMetadata['runningOperation']>;
+      }
+    | undefined
+  > =>
+    this.db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ metadata: topics.metadata })
+        .from(topics)
+        .where(and(eq(topics.id, id), this.ownership()))
+        .for('update');
+      const runningOperation = existing?.metadata?.runningOperation;
+      if (!existing || !runningOperation) return undefined;
+
+      if (runningOperation.operationId === operationId) {
+        await tx
+          .update(topics)
+          .set({
+            metadata: { ...existing.metadata, runningOperation: null },
+          })
+          .where(and(eq(topics.id, id), this.ownership()));
+        return { isRoot: true, operation: runningOperation };
+      }
+
+      const child = runningOperation.childOperations?.find(
+        (candidate) => candidate.operationId === operationId,
+      );
+      if (!child) return undefined;
+
+      await tx
+        .update(topics)
+        .set({
+          metadata: {
+            ...existing.metadata,
+            runningOperation: {
+              ...runningOperation,
+              childOperations: runningOperation.childOperations?.filter(
+                (candidate) => candidate.operationId !== operationId,
+              ),
+            },
+          },
+        })
+        .where(and(eq(topics.id, id), this.ownership()));
+      return { isRoot: false, operation: child };
+    });
+
   /**
    * Atomically reserve an idle topic for one task-callback delivery.
    *
@@ -1489,6 +1658,7 @@ export class TopicModel {
   tryReserveTaskCallback = async (
     id: string,
     messageId: string,
+    allowRunningOperationId?: string,
     replacesOperationId?: string,
   ): Promise<boolean | null> =>
     this.db.transaction(async (tx) => {
@@ -1509,6 +1679,9 @@ export class TopicModel {
 
       if (reservation?.messageId === messageId && hasLiveReservation) return true;
       const runningOperation = existing.metadata?.runningOperation;
+      const ownedRunningOperation =
+        !!allowRunningOperationId && runningOperation?.operationId === allowRunningOperationId;
+      if (allowRunningOperationId) return ownedRunningOperation;
       const canReplaceRunningOperation =
         !!replacesOperationId && runningOperation?.operationId === replacesOperationId;
       if ((runningOperation && !canReplaceRunningOperation) || hasLiveReservation) return false;
@@ -1722,6 +1895,32 @@ export class TopicModel {
       );
 
     return result[0]?.total ?? 0;
+  };
+
+  /**
+   * Resets the memory-extraction state of all the caller's topics back to
+   * `pending`, clearing any previous run summary. Used by "purge all
+   * memories": after memories are deleted, topics keep `userMemoryExtractStatus =
+   * 'completed'`, so `isTopicExtracted()` skips them forever and nothing can
+   * ever be re-extracted. Resetting to `pending` makes the next memory
+   * analysis re-process them. Fixes #18498.
+   *
+   * Scoped by `userId` only (not `mine()`): `deleteAll` removes every memory
+   * belonging to the caller regardless of workspace scope, so the reset must
+   * cover topics across personal and all workspace scopes alike, otherwise
+   * topics in the other scope keep `completed` and stay stuck behind the
+   * extraction skip gate.
+   */
+  resetMemoryExtractStatus = async () => {
+    return this.db
+      .update(topics)
+      .set({
+        metadata: sql`jsonb_set(
+          jsonb_set(${topics.metadata}, '{userMemoryExtractStatus}', to_jsonb('pending'::text), true),
+          '{userMemoryExtractRunState}', '{}'::jsonb, true
+        )`,
+      })
+      .where(eq(topics.userId, this.userId));
   };
 
   // **************** Scheduled run (backend cron) *************** //
