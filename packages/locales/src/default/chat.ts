@@ -329,7 +329,6 @@ export default {
   'groupWizard.searchTemplates': 'Search templates...',
   'groupWizard.title': 'Create Group',
   'groupWizard.useTemplate': 'Use Template',
-  'heteroAgent.defaultName': "{{owner}}'s {{product}}",
   'heteroAgent.fullAccess.label': 'Full access',
   'heteroAgent.fullAccess.tooltip':
     'The local coding agent runs with full read/write access to the working directory. Switching permission modes is not available yet.',
@@ -1884,7 +1883,8 @@ export default {
   'taskList.view.list': 'List',
   'taskList.viewAll': 'View all',
   'thread.closeSubagentThread': 'Hide Detail',
-  'thread.divider': 'Subtopic',
+  'thread.dividerContinuation': 'Forked here, inheriting the main chat context so far',
+  'thread.dividerStandalone': 'Forked here, inheriting only the message above',
   'thread.openSubagentThread': 'View Detail',
   'thread.subagentMetrics.modelLabel': 'Model',
   'thread.subagentMetrics.toolCalls_one': '{{count}} tool call',
