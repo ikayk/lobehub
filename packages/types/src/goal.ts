@@ -1,4 +1,5 @@
 import type { InitialGoalOverviewContext } from './stepContext';
+import type { WorkType } from './work';
 
 // ============================================
 // Goal — independent target entity (`goals` table)
@@ -53,9 +54,54 @@ export interface GoalSchedulePolicy {
  * records their ids so the terminal Goal-acceptance Task verifies against
  * exactly these checks instead of re-deriving them from the requirement prose.
  */
+/** Comparison a measured value must satisfy. */
+export type GoalMetricComparison = 'gte' | 'lte' | 'gt' | 'lt' | 'eq';
+
+/**
+ * A numeric acceptance clause: "this series must read at least this much".
+ *
+ * The counterpart to a delivery contract judged by a verifier — "followers >=
+ * 1,000,000" is not a document someone reads, it is a number that gets
+ * measured. `key` addresses a series on the goal itself (subjectType `goal`,
+ * subjectId the goal id), so a criterion needs no id of its own and survives
+ * the series being re-created.
+ */
+export interface GoalMetricCriterion {
+  /** Metric series key on this goal, e.g. 'twitter.followers'. */
+  key: string;
+  /** Defaults to `gte` — the "reach this number" case. */
+  op?: GoalMetricComparison;
+  target: number;
+}
+
+/**
+ * Upper bound on declared numeric clauses. Every clause is read on each
+ * terminal tick, and an unbounded list would let one goal's acceptance payload
+ * pace the coordinator (and its database pool) for everyone else.
+ */
+export const MAX_GOAL_METRIC_CRITERIA = 20;
+
 export interface GoalAcceptancePolicy {
   criteriaIds?: string[];
+  /**
+   * Measured clauses that gate acceptance. Every one must hold before the
+   * Goal-level delivery acceptance is even attempted: an unmet number is not
+   * something a verifier can talk its way past, and running the acceptance
+   * agent against it would only spend tokens to restate the gap.
+   */
+  metrics?: GoalMetricCriterion[];
 }
+
+/**
+ * Who a goal's current pause belongs to, recorded whenever one is taken.
+ *
+ * Runtime bookkeeping rather than policy: without it, an event that clears the
+ * coordinator's reason cannot tell a park it owns from a pause a person chose,
+ * and would restart a goal somebody deliberately stopped. A person's claim is
+ * stored explicitly rather than as the absence of a marker, because pausing an
+ * already-paused goal is a no-op that leaves no other trace of who asked.
+ */
+export type GoalPauseReason = 'measured_acceptance' | 'user';
 
 export interface GoalConfig {
   acceptance?: GoalAcceptancePolicy;
@@ -66,6 +112,8 @@ export interface GoalConfig {
    * before the first result came back. Null/undefined uses the default.
    */
   maxConcurrentTasks?: number | null;
+  /** Who the current pause belongs to; cleared when the goal runs again. */
+  pausedBy?: GoalPauseReason;
   recovery?: GoalRecoveryPolicy;
   schedule?: GoalSchedulePolicy;
 }
@@ -213,7 +261,39 @@ export interface GoalGraphWorkVersionLink {
   id: string;
   nodeId: string;
   relation: GoalNodeWorkVersionRelation;
+  /**
+   * Display snapshot of the linked Work version, joined at read time so the
+   * graph can name a deliverable instead of counting it. Absent only when the
+   * version row is gone — the link is kept so the count stays honest.
+   */
+  work?: GoalGraphWorkVersionDisplay;
   workVersionId: string;
+}
+
+/**
+ * What a linked Work version shows without a second round-trip. Taken from the
+ * immutable version row rather than the live Work: the graph records what the
+ * task delivered at that moment, and a title edited later does not rewrite the
+ * goal's history.
+ */
+export interface GoalGraphWorkVersionDisplay {
+  /**
+   * Proof that a `document` Work is bound to an agent, and therefore openable
+   * in-app. It is the binding row's id, NOT a route parameter — the document
+   * route resolves {@link resourceId}.
+   */
+  agentDocumentId?: string;
+  /** Durable download target of a `file` Work, which keeps it out of `url`. */
+  fileUrl?: string;
+  identifier: string | null;
+  /** Canonical resource identity — the document id an in-app link addresses. */
+  resourceId: string | null;
+  status: string | null;
+  title: string | null;
+  type: WorkType;
+  /** Canonical http(s) open target, for Works that live outside the app. */
+  url: string | null;
+  workId: string;
 }
 
 export interface GoalGraphSnapshot {

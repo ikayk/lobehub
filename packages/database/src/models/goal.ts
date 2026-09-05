@@ -65,7 +65,12 @@ export class GoalModel {
   };
 
   findById = async (id: string): Promise<GoalItem | undefined> => {
-    return this.db.query.goals.findFirst({ where: and(eq(goals.id, id), this.ownership()) });
+    const [row] = await this.db
+      .select()
+      .from(goals)
+      .where(and(eq(goals.id, id), this.ownership()))
+      .limit(1);
+    return row;
   };
 
   /** The Goal Graph that owns this Task, or undefined when the task is not graph-managed. */
@@ -77,6 +82,27 @@ export class GoalModel {
       .where(and(eq(goalNodes.taskId, taskId), eq(goalNodes.kind, 'task'), this.ownership()))
       .limit(1);
     return row?.goal;
+  };
+
+  /**
+   * Patch only `config.pausedBy`, leaving every other key in the column alone.
+   *
+   * The coordinator writes this marker from a tick while the user edits budget
+   * and acceptance criteria on the same JSONB column from the goal page. A
+   * read-modify-write of the whole config would let whichever landed second
+   * discard the other's work — the user's new criteria, or the marker a
+   * measured-acceptance goal needs to ever reopen.
+   */
+  updatePauseReason = async (id: string, reason: string | undefined): Promise<void> => {
+    await this.db
+      .update(goals)
+      .set({
+        config: reason
+          ? sql`jsonb_set(COALESCE(${goals.config}, '{}'::jsonb), '{pausedBy}', ${JSON.stringify(reason)}::jsonb)`
+          : sql`COALESCE(${goals.config}, '{}'::jsonb) - 'pausedBy'`,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(goals.id, id), this.ownership()));
   };
 
   update = async (id: string, value: Partial<Omit<GoalItem, 'id' | 'userId'>>) => {
