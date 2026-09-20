@@ -4,6 +4,8 @@ import type { DeviceUnavailableErrorData, WorkingDirConfig } from '../device';
 import type { TaskDetail, UIChatMessage } from '../message';
 import type { ChatTopic } from '../topic';
 
+export * from './modelFacts';
+
 export type AgentSignalOperationKind =
   'memory' | 'nightly-review' | 'self-feedback-intent' | 'self-reflection' | 'skill';
 
@@ -234,6 +236,8 @@ export interface ExecAgentParams {
    * use the internal `files` param instead.
    */
   fileIds?: string[];
+  /** Opt into runtime state snapshots on step_complete events. Defaults to false. */
+  includeFinalState?: boolean;
   /** Additional system instructions appended after the agent's own system role */
   instructions?: string;
   /** Current desktop's device ID; used only when the effective target is `local`. */

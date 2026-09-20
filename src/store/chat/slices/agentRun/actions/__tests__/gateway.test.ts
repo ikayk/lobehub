@@ -637,6 +637,45 @@ describe('GatewayActionImpl', () => {
       delete (globalThis as any).window;
     });
 
+    it('acknowledges an isolated topic before UI hydration without switching topics', async () => {
+      const { action, switchTopic, connectToGateway } = createExecuteTestAction();
+      vi.mocked(aiAgentService.execAgentTask).mockResolvedValue({
+        agentId: 'target-agent',
+        assistantMessageId: 'assistant-1',
+        autoStarted: true,
+        createdAt: new Date().toISOString(),
+        message: 'ok',
+        operationId: 'server-op-1',
+        status: 'created',
+        success: true,
+        timestamp: new Date().toISOString(),
+        token: 'token',
+        topicId: 'target-topic',
+        userMessageId: 'user-1',
+      });
+      const events: string[] = [];
+      const onTopicCreated = vi.fn(() => {
+        events.push('accepted');
+      });
+      vi.mocked(messageService.getMessages).mockImplementationOnce(async () => {
+        events.push('hydrate');
+        return [];
+      });
+
+      const result = await action.executeGatewayAgent({
+        context: { agentId: 'target-agent', isolatedTopic: true, scope: 'main' },
+        message: 'Continue the forwarded work',
+        onTopicCreated,
+      });
+
+      expect(result.topicId).toBe('target-topic');
+      expect(events).toEqual(['accepted', 'hydrate']);
+      expect(onTopicCreated).toHaveBeenCalledWith('target-topic');
+      expect(onTopicCreated).toHaveBeenCalledTimes(1);
+      expect(switchTopic).not.toHaveBeenCalled();
+      expect(connectToGateway).toHaveBeenCalled();
+    });
+
     it.each([
       {
         expectedEnabled: true,
@@ -1707,11 +1746,15 @@ describe('GatewayActionImpl', () => {
         expect.objectContaining({
           value: expect.objectContaining({
             metadata: expect.objectContaining({
-              runningOperation: {
+              runningOperation: expect.objectContaining({
                 assistantMessageId: 'ast-1',
                 heteroType: null,
                 operationId: 'server-op-1',
-              },
+                // Server op createdAt echoed onto the optimistic marker so a
+                // refresh-time reconnect can anchor elapsed time without the
+                // messages list having loaded.
+                startedAt: expect.any(String),
+              }),
             }),
           }),
         }),
@@ -2356,6 +2399,71 @@ describe('GatewayActionImpl', () => {
       expect(startOperation).toHaveBeenCalledWith(
         expect.objectContaining({
           metadata: expect.not.objectContaining({ startTime: expect.anything() }),
+        }),
+      );
+    });
+
+    // Cold-boot reconnect races the messages-list fetch: when it wins, the
+    // assistant message isn't in messagesMap yet and the old createdAt anchor
+    // resolved to undefined → startOperation stamped Date.now(), resetting the
+    // elapsed-time displays to 00:00 on every refresh. The marker's
+    // server-written startedAt stamp must win over the message lookup so the
+    // anchor survives regardless of which fetch lands first.
+    it('prefers the marker startedAt over the assistant message when messagesMap is empty', async () => {
+      const markerStartedAtMs = 1_700_000_000_000;
+      const { action, startOperation } = createReconnectTestAction(null);
+
+      await action.reconnectToGatewayOperation({
+        assistantMessageId: 'ast-1',
+        operationId: 'server-op-1',
+        startedAt: new Date(markerStartedAtMs).toISOString(),
+        topicId: 'topic-1',
+      });
+
+      expect(startOperation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({ startTime: markerStartedAtMs }),
+        }),
+      );
+    });
+
+    it('prefers the marker startedAt over a later assistant-message createdAt', async () => {
+      const markerStartedAtMs = 1_700_000_000_000;
+      const { action, startOperation } = createReconnectTestAction({
+        createdAt: markerStartedAtMs + 5_000,
+        id: 'ast-1',
+      });
+
+      await action.reconnectToGatewayOperation({
+        assistantMessageId: 'ast-1',
+        operationId: 'server-op-1',
+        startedAt: new Date(markerStartedAtMs).toISOString(),
+        topicId: 'topic-1',
+      });
+
+      expect(startOperation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({ startTime: markerStartedAtMs }),
+        }),
+      );
+    });
+
+    it('falls back to the assistant message when the marker carries no startedAt', async () => {
+      const createdAtMs = 1_700_000_000_000;
+      const { action, startOperation } = createReconnectTestAction({
+        createdAt: createdAtMs,
+        id: 'ast-1',
+      });
+
+      await action.reconnectToGatewayOperation({
+        assistantMessageId: 'ast-1',
+        operationId: 'server-op-1',
+        topicId: 'topic-1',
+      });
+
+      expect(startOperation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          metadata: expect.objectContaining({ startTime: createdAtMs }),
         }),
       );
     });
