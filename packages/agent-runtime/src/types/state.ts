@@ -20,6 +20,7 @@ import type {
   EvalToolForwardingConfig,
   ExecutionPlan,
   ExpertiseContextSnapshot,
+  FrozenCredentialFacts,
   FrozenModelFacts,
   LobeAgentChatConfig,
   LobeAgentConfig,
@@ -132,6 +133,10 @@ export interface AgentRunPrincipal {
   policy?: {
     /** Device-access decision; `reason` names the branch that granted or denied it. */
     deviceAccess?: { canUseDevice: boolean; reason: string };
+    /** Tool-call patterns that always need a human. Unset falls back to the runtime default. */
+    securityBlacklist?: SecurityBlacklistConfig;
+    /** Approval mode for this run — `headless` for background and sub-agent runs. */
+    userIntervention?: UserInterventionConfig;
   };
 }
 
@@ -224,8 +229,12 @@ export interface AgentWorldSnapshot {
    * is kept apart for the rules that must hide those tools from the model.
    */
   disabledPluginIds?: string[];
+  /** Whether the context engine may inject {@link AgentWorldSnapshot.expertise}. */
+  enableExpertise?: boolean;
   /** Evaluation prompt data for eval runs. */
   eval?: EvalContext;
+  /** Expertise snapshot resolved once when this operation started. */
+  expertise?: ExpertiseContextSnapshot;
   /** Multi-agent group roster (or bot-conversation fallback). */
   group?: AgentGroupConfig;
   /** Root instruction files of the bound project. */
@@ -288,10 +297,10 @@ export interface AgentState {
   costLimit?: CostLimit;
   // --- Metadata ---
   createdAt: string;
-  /** Whether ContextEngine may inject the operation expertise snapshot. */
+  /** @deprecated Use `world.enableExpertise`. */
   enableExpertise?: boolean;
   error?: any;
-  /** Immutable expertise snapshot resolved once when this operation starts. */
+  /** @deprecated Use `world.expertise`. */
   expertise?: ExpertiseContextSnapshot;
   /**
    * When true, the agent is in force-finish mode (maxSteps exceeded).
@@ -372,6 +381,13 @@ export interface AgentState {
     };
   };
 
+  /**
+   * Credentials this run listed once when it was created. A step renders
+   * `{{CREDS_LIST}}` from here instead of asking the Market API again; absent
+   * when the run has changed its own credentials since, and the steps after
+   * that read the list live.
+   */
+  operationCredentials?: FrozenCredentialFacts;
   operationId: string;
   /** Operation-level tool set snapshot (immutable after creation) */
   operationToolSet?: OperationToolSet;
@@ -430,12 +446,7 @@ export interface AgentState {
   // --- Principal ---
   /** Under whose authority the run acts and what it may do. Frozen at creation. */
   principal?: AgentRunPrincipal;
-  /**
-   * Security blacklist configuration
-   * These rules will ALWAYS block execution and require human intervention,
-   * regardless of user settings (even in auto-run mode).
-   * If not provided, DEFAULT_SECURITY_BLACKLIST will be used.
-   */
+  /** @deprecated Use `principal.policy.securityBlacklist`. */
   securityBlacklist?: SecurityBlacklistConfig;
   // --- State Machine ---
   status:
@@ -507,10 +518,7 @@ export interface AgentState {
    */
   usage: Usage;
 
-  /**
-   * User's global intervention configuration
-   * Controls how tools requiring approval are handled
-   */
+  /** @deprecated Use `principal.policy.userIntervention`. */
   userInterventionConfig?: UserInterventionConfig;
 
   // --- World snapshot ---

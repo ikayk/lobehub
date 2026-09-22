@@ -359,11 +359,14 @@ export class GatewayActionImpl {
     // Disconnect existing connection for this operation if any
     this.disconnectFromGateway(operationId);
 
-    // Read the lab flag once per connect (non-reactive, like the other prefs
-    // `isGatewayModeEnabled` consults): a connection keeps the transport it
-    // was opened with even if the toggle flips mid-run.
+    // Share visitors default to protocol v2 because the public surface does
+    // not inherit the creator's Labs preference. Owner runs keep the existing
+    // opt-in rollout: a connection keeps the transport it was opened with
+    // even if the toggle flips mid-run.
+    const useGatewayMux =
+      Boolean(agentShareId) || labPreferSelectors.enableGatewayMux(useUserStore.getState());
     let muxClient: OperationClient | undefined;
-    if (labPreferSelectors.enableGatewayMux(useUserStore.getState())) {
+    if (useGatewayMux) {
       const mux = this.resolveGatewayMux({ agentShareId, gatewayUrl });
       this.#attachGatewayFeed(mux);
       // The mux mints its own token via `getToken` on every dial, so `token`
@@ -948,6 +951,27 @@ export class GatewayActionImpl {
     const resolvedMessageContext = resolveThread({ ...messageContext, topicId: result.topicId });
     this.#get().moveVoiceMessages(messageContext, resolvedMessageContext);
 
+    if (precreatedResult) {
+      // V2 resolves the intervention before returning this continuation. Apply
+      // that persisted state before subscribing, so the answered form closes
+      // even when the next runtime event is delayed. SWR revalidation alone
+      // can be ignored while the previous operation still appears running.
+      try {
+        const messages = await messageService.getMessages({
+          ...resolvedMessageContext,
+          skipWorks: true,
+        });
+        this.#get().replaceMessages(messages, {
+          context: resolvedMessageContext,
+          preserveWorks: true,
+        });
+      } catch (error) {
+        // The continuation already exists; a failed read must not prevent us
+        // from connecting to it and reconciling through subsequent events.
+        console.error('[Gateway] Failed to refresh messages after intervention resolution:', error);
+      }
+    }
+
     if (result.createdThreadId) {
       // Attachments picked in the subtopic composer were staged under the
       // `_new` key; carry them over so the next turn in the thread still sees
@@ -1012,6 +1036,17 @@ export class GatewayActionImpl {
       if (!messageContext.isolatedTopic) {
         await this.#get().switchTopic(result.topicId, {
           clearNewKey: true,
+          // The cleanup targets the blank bucket this send came from — the
+          // user may be viewing a different conversation by now.
+          clearNewKeyContext: {
+            agentId: messageContext.agentId,
+            groupId: messageContext.groupId,
+          },
+          // Guard against yanking the user back if they navigated to another
+          // topic while execAgentTask's persistence round-trip was in flight.
+          // Both ids are accepted: the optimistic-topic re-key above moves
+          // `activeTopicId` from the minted id to the persisted one.
+          onlyIfActiveTopicIn: [messageContext.topicId ?? null, result.topicId],
           skipRefreshMessage: true,
         });
       }

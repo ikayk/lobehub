@@ -57,6 +57,7 @@ import { type LobeChatDatabase } from '@/database/type';
 import { appEnv } from '@/envs/app';
 import { type AgentRuntimeCoordinatorOptions } from '@/server/modules/AgentRuntime';
 import { AgentRuntimeCoordinator, createStreamEventManager } from '@/server/modules/AgentRuntime';
+import { runMayUseDevice } from '@/server/modules/AgentRuntime/executors/resolveRunActiveDeviceId';
 import { formatErrorForState } from '@/server/modules/AgentRuntime/formatErrorForState';
 import { hasNonPersistedMessage } from '@/server/modules/AgentRuntime/messagePersistence';
 import {
@@ -86,6 +87,7 @@ import {
   isSuccessLikeCompletionReason,
   normalizeCompletionMessages,
 } from './CompletionLifecycle';
+import { stepChangedCredentials } from './credentialFacts';
 import { logToolCallPc } from './formalObservation';
 import { type AgentHook, hookDispatcher } from './hooks';
 import { HumanInterventionHandler } from './HumanInterventionHandler';
@@ -929,6 +931,7 @@ export class AgentRuntimeService {
       agentGroup,
       agentShareVisitor,
       modelRuntimeConfig,
+      operationCredentials,
       userId,
       autoStart = true,
       stream,
@@ -1060,8 +1063,6 @@ export class AgentRuntimeService {
       const initialState = {
         activatedStepTools,
         createdAt: new Date().toISOString(),
-        enableExpertise,
-        expertise,
         // Store initialContext for executeSync to use
         initialContext,
         lastModified: new Date().toISOString(),
@@ -1114,6 +1115,9 @@ export class AgentRuntimeService {
         maxSteps,
         // modelRuntimeConfig at state level for executor fallback
         modelRuntimeConfig,
+        // Read once during discovery; dropped again as soon as the run changes
+        // its own credentials (see the creds invalidation after a step).
+        operationCredentials,
         operationId,
         // The run's only copy of its tool set. The manifest map is the heaviest
         // thing on the state and the state is re-serialized at every step, so the
@@ -1140,8 +1144,19 @@ export class AgentRuntimeService {
             shareVisitor: agentShareVisitor,
           },
           audit: { clientIp: appContext?.clientIp, userAgent: appContext?.userAgent },
-          policy: { deviceAccess: deviceAccessPolicy },
+          // What the run may do, decided once here: device access and the
+          // approval mode its tool calls answer to.
+          policy: { deviceAccess: deviceAccessPolicy, userIntervention: userInterventionConfig },
         },
+        // Compat mirrors for a rolling deploy: a worker still running the
+        // pre-slot build reads only these, and a missing approval mode defaults
+        // to `manual` there — which parks a headless run on an approval nobody
+        // can give. Drop them (and the matching entries in
+        // `normalizeAgentState`'s COMPAT_MIRROR_PATHS) once no pre-slot worker
+        // can pick up a step.
+        enableExpertise,
+        expertise,
+        userInterventionConfig,
         // What the model is told about the run's world — frozen from here on;
         // the context engine reads it on every step.
         world: {
@@ -1151,15 +1166,15 @@ export class AgentRuntimeService {
           }),
           connectorOwnershipNote,
           disabledPluginIds,
+          enableExpertise,
           eval: evalContext,
+          expertise,
           group: agentGroup,
           projectInstructions,
           searchDecision,
           userMemory,
           userTimezone,
         },
-        // User intervention config for headless mode in async tasks
-        userInterventionConfig,
       } as Partial<AgentState>;
 
       // Use coordinator to create operation, automatically sends initialization event.
@@ -1489,6 +1504,11 @@ export class AgentRuntimeService {
       stepLockOwner,
     );
     if (!claimed) {
+      // Someone else owns this operation now. Whatever this invocation buffered
+      // for the trace belongs to their partial from here — every return below
+      // leaves without it, so drop it once, up front, rather than per exit.
+      this.traceRecorder.discardPartial();
+
       let currentState: AgentState | null | undefined = null;
       try {
         currentState = await this.coordinator.loadAgentState(operationId);
@@ -1647,6 +1667,11 @@ export class AgentRuntimeService {
     // runtime.step() call site stays as the authoritative start for the
     // success path.
     const stepStartAt = Date.now();
+
+    // Hoisted so the shared `finally` knows whether the next step stays in this
+    // invocation. When it does, the accumulated trace partial stays in memory;
+    // on every other exit some other process reads it, so it has to be durable.
+    let handedOffInline = false;
 
     // OTel invoke_agent span. Wraps the entire step body so child spans
     // (chat / execute_tool / context_engineering) auto-nest via the active
@@ -1889,7 +1914,8 @@ export class AgentRuntimeService {
         // Context: contextEngine.input (agentDocuments) was ~2.7MB/step,
         // hitting Upstash Redis 10MB limit. Bypassing events keeps the heavy
         // payload in trace only, reducing per-step Redis state by ~500x.
-        let contextEnginePayload: { input: unknown; output: unknown } | undefined;
+        let contextEnginePayload:
+          { input: unknown; metadata?: unknown; output: unknown } | undefined;
 
         // Create Agent and Runtime instances
         // Use agentState.metadata which contains the full app context (topicId, agentId, etc.)
@@ -1948,8 +1974,8 @@ export class AgentRuntimeService {
           agentState,
           operationId,
           stepIndex,
-          tracingContextEngine: (input, output) => {
-            contextEnginePayload = { input, output };
+          tracingContextEngine: (input, output, metadata) => {
+            contextEnginePayload = { input, metadata, output };
           },
         });
 
@@ -1985,6 +2011,10 @@ export class AgentRuntimeService {
           currentState.pendingToolsCalling = [];
           currentState.status = 'running';
           currentState.interruption = undefined;
+          // Whatever ran while this operation was parked is invisible from
+          // here: a sub-agent that saved a credential cleared its own snapshot,
+          // not this one. Drop ours rather than render a list that predates it.
+          currentState.operationCredentials = undefined;
           currentState.lastModified = new Date().toISOString();
           currentContext = {
             payload: { parentMessageId: resumeParentMessageId },
@@ -2024,7 +2054,11 @@ export class AgentRuntimeService {
 
         // Pre-step computation: extract device context from DB messages
         // Follows front-end computeStepContext pattern — computed at step boundary, not inside executors
-        if (!currentState.binding?.device?.id) {
+        // Only for a run that may actually touch a device: the executors read the
+        // id through the same gate, so binding one here for a forbidden run buys
+        // nothing and puts the device's working directory and system info into
+        // the prompt variables (`serverCallLlmContextBuilder`).
+        if (!currentState.binding?.device?.id && runMayUseDevice(currentState)) {
           // Interventions and async resumes can change tool rows after the
           // entry snapshot. Those paths still need a fresh device read.
           const canReuseEntryMessages =
@@ -2196,6 +2230,18 @@ export class AgentRuntimeService {
               type: 'message_patch',
             });
           }
+        }
+
+        // A credential the run just saved or connected changes the list the next
+        // step must show, so the snapshot frozen at creation no longer holds.
+        // Dropped before the save below — that write is what the next step
+        // reloads, and nothing else persists the state on a plain step.
+        if (
+          stepChangedCredentials(stepResult.nextContext) &&
+          stepResult.newState.operationCredentials
+        ) {
+          stepResult.newState.operationCredentials = undefined;
+          log('[%s][%d] Credentials changed in-run; dropped the snapshot', operationId, stepIndex);
         }
 
         // Save state, coordinator will handle event sending automatically
@@ -2415,6 +2461,7 @@ export class AgentRuntimeService {
           }
 
           if (parked) {
+            handedOffInline = true;
             // Hand the next step back to the caller instead of paying a full
             // queue round-trip for it. The caller either runs it in this same
             // invocation or publishes it via `scheduleContinuation` when its
@@ -2425,6 +2472,9 @@ export class AgentRuntimeService {
             }));
             log('[%s][%d] Next step %d deferred to caller', operationId, stepIndex, nextStepIndex);
           } else {
+            // The next step runs in another invocation, which rebuilds the
+            // partial from the store — it has to see this step.
+            await this.traceRecorder.flushPartial();
             await this.queueService.scheduleMessage({ ...next, endpoint: `${this.baseURL}/run` });
             nextStepScheduled = true;
             logToolCallPc(operationId, stepIndex, 'post.next_step_scheduled', () => ({
@@ -2663,6 +2713,10 @@ export class AgentRuntimeService {
       stepAbortPollStopped = true;
       if (stepAbortPoll) clearTimeout(stepAbortPoll);
       stopStepLockHeartbeat();
+      // Parked runs (human input, async tools) and finished ones are read back
+      // by a different invocation, so the partial cannot stay in memory only.
+      // An inline hand-off keeps it: the next step runs on this recorder.
+      if (!handedOffInline) await this.traceRecorder.flushPartial();
       // The inline step loop keeps the lock across step boundaries — releasing
       // here would open a window for a stale redelivery to claim it mid-run.
       // Its caller releases once, in a `finally`, for the whole invocation.
@@ -2683,6 +2737,10 @@ export class AgentRuntimeService {
         `Cannot schedule continuation for ${continuation.operationId}: no queue service`,
       );
     }
+
+    // The steps this invocation inlined are still only in memory — the
+    // invocation that picks the run up reads the partial from the store.
+    await this.traceRecorder.flushPartial();
 
     await this.queueService.scheduleMessage({
       ...continuation,
@@ -4010,7 +4068,7 @@ export class AgentRuntimeService {
     agentState?: any;
     operationId: string;
     stepIndex: number;
-    tracingContextEngine?: (input: unknown, output: unknown) => void;
+    tracingContextEngine?: (input: unknown, output: unknown, metadata?: unknown) => void;
   }) {
     const state = agentState as AgentState | undefined;
     const modelRuntimeConfig = state?.modelRuntimeConfig;

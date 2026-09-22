@@ -549,6 +549,19 @@ describe('AgentRuntimeService', () => {
       });
     });
 
+    it('records the approval mode as a run policy', async () => {
+      await service.createOperation({
+        ...mockParams,
+        userInterventionConfig: { approvalMode: 'headless' },
+      });
+
+      const [, state] = mockCoordinator.saveAgentState.mock.calls[0];
+      expect(state.principal.policy.userIntervention).toEqual({ approvalMode: 'headless' });
+      // Mirrored at the top level for the rolling-deploy window: a worker on the
+      // pre-slot build reads only that, and would park this headless run.
+      expect(state.userInterventionConfig).toEqual({ approvalMode: 'headless' });
+    });
+
     it('stores the run tool set once, on the operation slot', async () => {
       const manifestMap = { 'lobe-web-browsing': { identifier: 'lobe-web-browsing' } };
 
@@ -688,11 +701,14 @@ describe('AgentRuntimeService', () => {
         expertise,
       });
 
+      // What the model is told about the run lives on the world slot, with the
+      // top-level mirror kept for pre-slot workers during a rolling deploy.
       expect(mockCoordinator.saveAgentState).toHaveBeenCalledWith(
         'test-operation-1',
         expect.objectContaining({
           enableExpertise: true,
           expertise,
+          world: expect.objectContaining({ enableExpertise: true, expertise }),
         }),
       );
     });
@@ -974,6 +990,48 @@ describe('AgentRuntimeService', () => {
       },
     );
 
+    // The executors read the device id through the same gate, so binding one for
+    // a run that may not touch a device buys nothing — and its working directory
+    // and system info would ride into the prompt variables.
+    it.each([
+      { policy: { deviceAccess: { canUseDevice: false, reason: 'external-bot' } }, why: 'policy' },
+      { plan: { execution: { kind: 'sandbox', target: 'sandbox' } }, why: 'plan' },
+    ])('does not adopt a device the run may not use ($why)', async ({ plan, policy }) => {
+      const state = {
+        ...mockState,
+        messages: [],
+        origin: { agentId: 'agent-1', topicId: 'topic-1' },
+        ...(plan && { plan }),
+        ...(policy && { principal: { policy } }),
+      };
+      mockCoordinator.loadAgentState.mockResolvedValue(state);
+      const dbMessages = buildPersistedToolChain('answer');
+      dbMessages[0] = {
+        ...dbMessages[0],
+        pluginState: {
+          metadata: {
+            activeDeviceId: 'device-1',
+            devicePlatform: 'darwin',
+            deviceSystemInfo: { workingDirectory: '/Users/someone/secret' },
+          },
+        },
+        role: 'tool',
+      };
+      (service as any).messageModel.query.mockResolvedValue(dbMessages);
+      vi.spyOn((service as any).messageService, 'prepareUiMessages').mockResolvedValue([]);
+      const step = vi.fn().mockImplementation(async (input) => ({
+        events: [],
+        newState: { ...input, stepCount: 2 },
+        nextContext: mockParams.context,
+      }));
+      vi.spyOn(service as any, 'createAgentRuntime').mockResolvedValue({ runtime: { step } });
+
+      const result = await service.executeStep(mockParams);
+
+      expect(result.success).toBe(true);
+      expect(step.mock.calls[0][0].binding?.device).toBeUndefined();
+    });
+
     it('shares one DB read while UI preparation is still pending', async () => {
       const state = {
         ...mockState,
@@ -1078,6 +1136,59 @@ describe('AgentRuntimeService', () => {
 
       expect(mockCoordinator.saveStepResult).toHaveBeenCalled();
       expect(mockQueueService.scheduleMessage).toHaveBeenCalled();
+    });
+
+    describe('frozen credential snapshot', () => {
+      const frozen = {
+        credentials: [{ key: 'OPENAI', name: 'OpenAI', type: 'apiKey' }],
+        workspaceId: undefined,
+      };
+
+      /**
+       * Snapshot the state AT the save, not the object afterwards: the runtime
+       * keeps mutating `newState`, so a later clear would otherwise read back as
+       * if it had been persisted.
+       */
+      const runStepWithToolCall = async (apiName: string) => {
+        const stateWithSnapshot = { ...mockState, operationCredentials: frozen };
+        mockCoordinator.loadAgentState.mockResolvedValue(stateWithSnapshot);
+
+        let persisted: string | undefined;
+        mockCoordinator.saveStepResult.mockImplementationOnce(async (_id: string, result: any) => {
+          persisted = JSON.stringify(result.newState);
+        });
+
+        const mockRuntime = {
+          step: vi.fn().mockResolvedValue({
+            events: [],
+            newState: { ...stateWithSnapshot, status: 'running', stepCount: 2 },
+            nextContext: {
+              payload: { toolCall: { apiName, identifier: 'lobe-creds' } },
+              phase: 'tool_result',
+            },
+          }),
+        };
+        vi.spyOn(service as any, 'createAgentRuntime').mockReturnValue({ runtime: mockRuntime });
+
+        await service.executeStep(mockParams);
+
+        expect(persisted).toBeDefined();
+        return JSON.parse(persisted!);
+      };
+
+      it('drops the snapshot in the state it persists after the run saves a credential', async () => {
+        const persistedState = await runStepWithToolCall('saveCreds');
+
+        expect(persistedState.operationCredentials).toBeUndefined();
+      });
+
+      it('keeps the snapshot when the creds call only read', async () => {
+        const persistedState = await runStepWithToolCall('injectCredsToSandbox');
+
+        expect(persistedState.operationCredentials).toEqual({
+          credentials: frozen.credentials,
+        });
+      });
     });
 
     it('should resume async tools with the last pending tool result as parentMessageId', async () => {
