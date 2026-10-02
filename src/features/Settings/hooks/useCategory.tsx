@@ -1,3 +1,4 @@
+import { ENABLE_TOOL_CHANNEL_SETTINGS } from '@lobechat/business-const';
 import { isDesktop } from '@lobechat/const';
 import { Avatar } from '@lobehub/ui/base-ui';
 import { SkillsIcon } from '@lobehub/ui/icons';
@@ -27,6 +28,8 @@ import {
   Sparkles,
   TagIcon,
   TerminalSquare,
+  Trash2,
+  Wrench,
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -214,6 +217,11 @@ export const useCategory = () => {
         key: SettingsTabs.Memory,
         label: t('tab.memory'),
       },
+      ENABLE_TOOL_CHANNEL_SETTINGS && {
+        icon: Wrench,
+        key: SettingsTabs.Tools,
+        label: t('tab.tools'),
+      },
       {
         icon: KeyRound,
         key: SettingsTabs.Creds,
@@ -248,6 +256,11 @@ export const useCategory = () => {
         icon: Database,
         key: SettingsTabs.Storage,
         label: t('tab.storage'),
+      },
+      {
+        icon: Trash2,
+        key: SettingsTabs.Trash,
+        label: t('tab.trash'),
       },
       !hideDocs && {
         icon: Info,

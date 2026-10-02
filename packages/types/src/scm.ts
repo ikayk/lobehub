@@ -20,6 +20,42 @@ export type ScmInstallationAccountType = 'organization' | 'user';
 /** Whether the installation covers every repository of the account or a chosen subset. */
 export type ScmRepositorySelection = 'all' | 'selected';
 
+/**
+ * How the provider relates an actor to the repository. GitHub's
+ * `author_association`, lower-cased; `none` covers a passer-by.
+ */
+export type ScmActorAssociation =
+  'collaborator' | 'contributor' | 'member' | 'none' | 'owner' | 'unknown';
+
+/**
+ * Associations whose word is trusted enough to steer an unattended agent.
+ * Anyone below this bar can still comment; their text simply does not
+ * become an instruction with tools behind it.
+ */
+export const SCM_TRUSTED_ASSOCIATIONS: ReadonlySet<ScmActorAssociation> = new Set([
+  'collaborator',
+  'member',
+  'owner',
+]);
+
+/**
+ * Review bots whose feedback may steer the agent even though the provider
+ * reports them as `none` (GitHub App bots never hold an association). Only
+ * a repository admin can install such an app, and the `[bot]` suffix cannot
+ * be taken by a user account, so the login alone identifies it.
+ */
+export const SCM_TRUSTED_REVIEW_BOTS: ReadonlySet<string> = new Set([
+  'chatgpt-codex-connector[bot]',
+]);
+
+/** Whether an actor's review text may become an instruction for an unattended agent. */
+export const isTrustedScmReviewer = (actor: {
+  association?: ScmActorAssociation;
+  login?: string;
+}): boolean =>
+  (!!actor.association && SCM_TRUSTED_ASSOCIATIONS.has(actor.association)) ||
+  (!!actor.login && SCM_TRUSTED_REVIEW_BOTS.has(actor.login));
+
 /** One repository granted to an installation. Snapshot maintained from provider events. */
 export interface ScmInstallationRepository {
   externalId: string;
@@ -110,12 +146,22 @@ export interface ScmChangeRequestMetadata {
   /** Acceptance links parsed out of the change request body. */
   acceptanceIdsFromBody?: string[];
   /**
+   * Who is currently posting the tracking comment, as an ISO timestamp.
+   * Taken atomically so concurrent deliveries cannot each post one; goes
+   * stale on its own if the post never finishes.
+   */
+  commentClaimedAt?: string;
+  /**
    * Provider-clock timestamp of the newest change-request event applied.
    * Kept apart from the `lastEventAt` column, which also records events we
    * time with our own clock (check results), so ordering only ever compares
    * two provider timestamps.
    */
   lastProviderEventAt?: string;
+  /** The most recent time the agent was notified about this change request, and why. */
+  lastWake?: { at: string; reason: string };
+  /** Provider id of the LobeHub comment posted on this change request, once posted. */
+  lobehubCommentId?: string;
   /** Provider's mergeability verdict, when it exposes one (`MERGEABLE`, `CONFLICTING`, …). */
   mergeable?: string;
   /**
@@ -126,12 +172,27 @@ export interface ScmChangeRequestMetadata {
    */
   pendingChecks?: { checks: ScmCheck[]; sha: string };
   /**
+   * A wake the debounce window swallowed. The next event on this change
+   * request delivers it, so the last failure of a burst is not lost.
+   */
+  pendingWake?: { reason: string; since: string };
+  /** Whether the repository is private, when the provider said. Drives the comment switches. */
+  repoPrivate?: boolean;
+  /**
    * Latest effective verdict per reviewer, keyed by provider user id. The
    * change request's `reviewDecision` is the rollup of these: one
    * outstanding "changes requested" outweighs any number of approvals,
    * whatever order the deliveries arrive in.
    */
   reviewers?: Record<string, { at?: string; decision: 'approved' | 'changes_requested' }>;
+  /**
+   * How the owner was decided. `author` rows point at a person's records
+   * wherever they live, so every action on them rechecks that the person
+   * can still write there; `installation` rows (and rows written before
+   * author routing, which carry nothing) belong to the installation's
+   * tenant and need no such check.
+   */
+  routedBy?: 'author' | 'installation';
 }
 
 /** Processing state of one inbound webhook delivery. */
@@ -178,6 +239,13 @@ export interface ScmChangeRequestLinks {
 export interface ScmUpsertChangeRequestParams extends ScmChangeRequestSnapshot {
   eventAt?: Date;
   eventKind?: ScmChangeRequestEventKind;
+  /**
+   * The owner below is only a fallback for a row that does not exist yet:
+   * an existing row keeps its owner, workspace and `routedBy`. Decided
+   * under the row lock, so a delivery that resolved nothing cannot move a
+   * row another delivery just routed.
+   */
+  keepOwner?: boolean;
   links?: ScmChangeRequestLinks;
   userId: string;
   workspaceId?: string | null;

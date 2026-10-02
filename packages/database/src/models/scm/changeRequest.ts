@@ -9,10 +9,10 @@ import type {
   ScmReviewDecision,
   ScmUpsertChangeRequestParams,
 } from '@lobechat/types';
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 
 import type { ScmChangeRequestItem } from '../../schemas';
-import { scmChangeRequests } from '../../schemas';
+import { scmChangeRequests, scmInstallations } from '../../schemas';
 import type { LobeChatDatabase } from '../../type';
 
 /**
@@ -185,19 +185,40 @@ export class ScmChangeRequestModel {
       .orderBy(desc(scmChangeRequests.updatedAt));
 
   /** Change requests visible to a scope, newest activity first. */
+  /**
+   * What this scope should see: its own change requests, plus everything on
+   * the installations it connected.
+   *
+   * The two are no longer the same set. A row belongs to whoever opened the
+   * pull request, which may be a member using their personal agent, while
+   * the installation belongs to the workspace — without the second half a
+   * workspace would stop seeing pull requests on its own repositories.
+   */
   static listByScope = async (
     db: LobeChatDatabase,
     scope: { userId: string; workspaceId?: string | null },
     options: { limit?: number } = {},
   ): Promise<ScmChangeRequestItem[]> => {
-    const scopeCondition = scope.workspaceId
+    const owned = scope.workspaceId
       ? eq(scmChangeRequests.workspaceId, scope.workspaceId)
       : and(eq(scmChangeRequests.userId, scope.userId), isNull(scmChangeRequests.workspaceId));
+
+    const connected = db
+      .select({ id: scmInstallations.id })
+      .from(scmInstallations)
+      .where(
+        and(
+          isNull(scmInstallations.revokedAt),
+          scope.workspaceId
+            ? eq(scmInstallations.workspaceId, scope.workspaceId)
+            : and(eq(scmInstallations.userId, scope.userId), isNull(scmInstallations.workspaceId)),
+        ),
+      );
 
     return db
       .select()
       .from(scmChangeRequests)
-      .where(scopeCondition)
+      .where(or(owned, inArray(scmChangeRequests.installationId, connected)))
       .orderBy(desc(scmChangeRequests.updatedAt))
       .limit(options.limit ?? 50);
   };
@@ -224,7 +245,21 @@ export class ScmChangeRequestModel {
   static upsert = async (
     db: LobeChatDatabase,
     params: ScmUpsertChangeRequestParams,
-  ): Promise<ScmChangeRequestItem> =>
+  ): Promise<ScmChangeRequestItem> => {
+    const row = await ScmChangeRequestModel.upsertOnce(db, params);
+    if (row) return row;
+    // Lost the race to create the row. The winner has committed by now, so
+    // go round again: this time there is a row to lock, and ownership,
+    // staleness and links are all judged against it like any other event.
+    const retried = await ScmChangeRequestModel.upsertOnce(db, params);
+    if (!retried) throw new Error('scm change request vanished between insert and retry');
+    return retried;
+  };
+
+  private static upsertOnce = async (
+    db: LobeChatDatabase,
+    params: ScmUpsertChangeRequestParams,
+  ): Promise<ScmChangeRequestItem | null> =>
     // The whole read-modify-write runs under a row lock. Reading the row
     // outside one lets a `merged` and an older `synchronize` delivery both
     // see the pre-merge state, and whichever writes last wins — the stale
@@ -242,13 +277,26 @@ export class ScmChangeRequestModel {
           and(
             eq(scmChangeRequests.provider, params.provider),
             params.externalId
-              ? eq(scmChangeRequests.externalId, params.externalId)
+              ? or(
+                  eq(scmChangeRequests.externalId, params.externalId),
+                  and(
+                    eq(scmChangeRequests.repoFullName, params.repoFullName),
+                    eq(scmChangeRequests.number, params.number),
+                  ),
+                )!
               : and(
                   eq(scmChangeRequests.repoFullName, params.repoFullName),
                   eq(scmChangeRequests.number, params.number),
                 )!,
           ),
         )
+        // The provider id first: after a rename it is the row that matters.
+        .orderBy(
+          params.externalId
+            ? sql`(${scmChangeRequests.externalId} = ${params.externalId}) desc`
+            : desc(scmChangeRequests.updatedAt),
+        )
+        .limit(1)
         .for('update');
 
       // Deliveries are not ordered: GitHub retries, and a redelivery of an old
@@ -302,6 +350,9 @@ export class ScmChangeRequestModel {
         metadata: {
           ...existing?.metadata,
           ...params.metadata,
+          ...((params.keepOwner || stale) && existing
+            ? { routedBy: existing.metadata?.routedBy }
+            : {}),
           ...(params.eventAt ? { lastProviderEventAt: params.eventAt.toISOString() } : {}),
           // Once adopted (or superseded by a newer head) the bucket is spent.
           ...(headChanged ? { pendingChecks: undefined } : {}),
@@ -314,17 +365,24 @@ export class ScmChangeRequestModel {
         url: params.url,
       };
 
+      // An out-of-order delivery describes an older state of the pull
+      // request, including where it was routed then. It can fill a link the
+      // row lacks; it cannot move the row or replace a link a newer event set.
       const scopeMoved =
         !!existing &&
+        !params.keepOwner &&
+        !stale &&
         (existing.userId !== params.userId ||
           (existing.workspaceId ?? null) !== (params.workspaceId ?? null));
       const inherited = scopeMoved ? undefined : existing;
+      const pick = <T>(incoming: T | null | undefined, stored: T | null | undefined): T | null =>
+        (stale ? (stored ?? incoming) : (incoming ?? stored)) ?? null;
       const linkValues = {
-        acceptanceId: links.acceptanceId ?? inherited?.acceptanceId ?? null,
+        acceptanceId: pick(links.acceptanceId, inherited?.acceptanceId),
         installationId: links.installationId ?? existing?.installationId ?? null,
-        taskId: links.taskId ?? inherited?.taskId ?? null,
-        topicId: links.topicId ?? inherited?.topicId ?? null,
-        workId: links.workId ?? inherited?.workId ?? null,
+        taskId: pick(links.taskId, inherited?.taskId),
+        topicId: pick(links.topicId, inherited?.topicId),
+        workId: pick(links.workId, inherited?.workId),
       };
       const ownerValues = scopeMoved
         ? { userId: params.userId, workspaceId: params.workspaceId ?? null }
@@ -354,7 +412,14 @@ export class ScmChangeRequestModel {
         // acceptance id parsed from the body), so fills apply; the lifecycle
         // columns do not.
         const stateValues = stale
-          ? { metadata: { ...snapshot.metadata, ...existing.metadata, ...params.metadata } }
+          ? {
+              metadata: {
+                ...snapshot.metadata,
+                ...existing.metadata,
+                ...params.metadata,
+                routedBy: existing.metadata?.routedBy,
+              },
+            }
           : snapshot;
         const [row] = await tx
           .update(scmChangeRequests)
@@ -371,8 +436,10 @@ export class ScmChangeRequestModel {
         return row;
       }
 
-      // No row to lock yet, so two first deliveries can race here; the
-      // unique index settles it and both end up applied.
+      // No row to lock yet, so two first deliveries can race here. The
+      // unique index picks the winner; the loser must not overwrite it
+      // blind — its links and owner were computed without the winner's —
+      // so it reports the loss and `upsert` replays it under the lock.
       const [row] = await tx
         .insert(scmChangeRequests)
         .values({
@@ -386,8 +453,7 @@ export class ScmChangeRequestModel {
           userId: params.userId,
           workspaceId: params.workspaceId ?? null,
         })
-        .onConflictDoUpdate({
-          set: { ...snapshot, ...linkValues, ...eventValues, updatedAt: now },
+        .onConflictDoNothing({
           target: [
             scmChangeRequests.provider,
             scmChangeRequests.repoFullName,
@@ -396,7 +462,7 @@ export class ScmChangeRequestModel {
         })
         .returning();
 
-      return row;
+      return row ?? null;
     });
 
   /** Fill in links that are still null. Never overwrites a link already set. */
@@ -575,16 +641,143 @@ export class ScmChangeRequestModel {
       .where(eq(scmChangeRequests.id, id));
   };
 
-  /** Bump the wake counter; returns the new count so the caller can enforce its cap. */
-  static recordWake = async (db: LobeChatDatabase, id: string): Promise<number> => {
-    const existing = await ScmChangeRequestModel.findById(db, id);
-    if (!existing) return 0;
-
-    const wakeCount = existing.wakeCount + 1;
+  /**
+   * Note a wake the debounce window swallowed, for the next delivery to
+   * carry. Touches only its own key: deliveries for one change request are
+   * handled concurrently, so writing the whole metadata column back would
+   * let a read-modify-write erase whatever another handler stored in
+   * between — the tracking comment id, the last wake, held checks.
+   */
+  static markPendingWake = async (
+    db: LobeChatDatabase,
+    id: string,
+    reason: string,
+  ): Promise<void> => {
     await db
       .update(scmChangeRequests)
-      .set({ lastWakeAt: new Date(), updatedAt: new Date(), wakeCount })
+      .set({
+        metadata: sql`${scmChangeRequests.metadata} || ${JSON.stringify({
+          pendingWake: { reason, since: new Date().toISOString() },
+        })}::jsonb`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(scmChangeRequests.id, id),
+          // First reason of the burst wins, as before.
+          sql`not coalesce(jsonb_exists(${scmChangeRequests.metadata}, 'pendingWake'), false)`,
+        ),
+      );
+  };
+
+  static clearPendingWake = async (db: LobeChatDatabase, id: string): Promise<void> => {
+    await db
+      .update(scmChangeRequests)
+      .set({
+        metadata: sql`${scmChangeRequests.metadata} - 'pendingWake'`,
+        updatedAt: new Date(),
+      })
       .where(eq(scmChangeRequests.id, id));
-    return wakeCount;
+  };
+
+  /**
+   * Claim one of the `max` wakes this change request is allowed, atomically.
+   *
+   * The cap has to be enforced by the database, not by the caller: without
+   * Redis there is no debounce, so two webhooks landing together both read
+   * the same `wakeCount` and a read-modify-write would lose one increment.
+   * A conditional `UPDATE … WHERE wake_count < max` lets exactly one of them
+   * through per remaining slot. Returns the new count, or `null` when the
+   * cap is already spent.
+   */
+  static reserveWake = async (
+    db: LobeChatDatabase,
+    id: string,
+    max: number,
+    reason?: string,
+  ): Promise<number | null> => {
+    const now = new Date();
+    // jsonb concat rather than a read-modify-write: it merges the one key
+    // this update owns and leaves every other key as the row has it.
+    const metadata = reason
+      ? sql`${scmChangeRequests.metadata} || ${JSON.stringify({
+          lastWake: { at: now.toISOString(), reason },
+        })}::jsonb`
+      : undefined;
+
+    const [reserved] = await db
+      .update(scmChangeRequests)
+      .set({
+        lastWakeAt: now,
+        ...(metadata ? { metadata } : {}),
+        updatedAt: now,
+        wakeCount: sql`${scmChangeRequests.wakeCount} + 1`,
+      })
+      .where(and(eq(scmChangeRequests.id, id), lt(scmChangeRequests.wakeCount, max)))
+      .returning({ wakeCount: scmChangeRequests.wakeCount });
+
+    return reserved?.wakeCount ?? null;
+  };
+
+  /**
+   * Take the right to post the tracking comment, atomically.
+   *
+   * Posting a comment is irreversible, so the single-writer decision cannot
+   * live in the application: `opened` and the `synchronize` a second later
+   * are handled concurrently, and on a deployment without Redis nothing
+   * else stops them both from seeing an unposted row. A conditional update
+   * on the metadata bag lets exactly one through; the claim goes stale
+   * after `staleAfterMs` so a crashed post does not block the row forever.
+   */
+  static claimCommentSlot = async (
+    db: LobeChatDatabase,
+    id: string,
+    staleAfterMs = 5 * 60 * 1000,
+  ): Promise<boolean> => {
+    const now = new Date();
+    const staleBefore = new Date(now.getTime() - staleAfterMs).toISOString();
+
+    const [claimed] = await db
+      .update(scmChangeRequests)
+      .set({
+        metadata: sql`${scmChangeRequests.metadata} || ${JSON.stringify({
+          commentClaimedAt: now.toISOString(),
+        })}::jsonb`,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(scmChangeRequests.id, id),
+          // Key existence, not `->> … IS NULL`: an IS NULL on an extracted
+          // jsonb value takes the planner down on any bm25-indexed table.
+          sql`coalesce(${scmChangeRequests.metadata} ->> 'lobehubCommentId', '') = ''`,
+          sql`coalesce(${scmChangeRequests.metadata} ->> 'commentClaimedAt', '') < ${staleBefore}`,
+        ),
+      )
+      .returning({ id: scmChangeRequests.id });
+
+    return Boolean(claimed);
+  };
+
+  /** Give the comment slot back when the post never happened. */
+  static releaseCommentSlot = async (db: LobeChatDatabase, id: string): Promise<void> => {
+    await db
+      .update(scmChangeRequests)
+      .set({
+        metadata: sql`${scmChangeRequests.metadata} - 'commentClaimedAt'`,
+        updatedAt: new Date(),
+      })
+      .where(eq(scmChangeRequests.id, id));
+  };
+
+  /** Hand a reserved wake back when the run never started. */
+  static releaseWake = async (db: LobeChatDatabase, id: string): Promise<void> => {
+    await db
+      .update(scmChangeRequests)
+      .set({
+        updatedAt: new Date(),
+        wakeCount: sql`greatest(${scmChangeRequests.wakeCount} - 1, 0)`,
+      })
+      .where(eq(scmChangeRequests.id, id));
   };
 }

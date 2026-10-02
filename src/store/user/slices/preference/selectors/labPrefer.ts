@@ -11,10 +11,10 @@ export const labPreferSelectors = {
     s.preference.lab?.enableArtifactDeployment ?? false,
   enableClaudeCodeSdk: (s: UserState): boolean => s.preference.lab?.enableClaudeCodeSdk ?? false,
   enableCodexAppServer: (s: UserState): boolean => s.preference.lab?.enableCodexAppServer ?? false,
+  enableDeviceTunnel: (s: UserState): boolean => s.preference.lab?.enableDeviceTunnel ?? false,
   enableDesktopSplitView: (s: UserState): boolean =>
     s.preference.lab?.enableDesktopSplitView ?? false,
   enableEvalCapture: (s: UserState): boolean => s.preference.lab?.enableEvalCapture ?? false,
-  enableGatewayMux: (s: UserState): boolean => s.preference.lab?.enableGatewayMux ?? false,
   enableHeteroSessionImport: (s: UserState): boolean =>
     s.preference.lab?.enableHeteroSessionImport ?? false,
   enableImessage: (s: UserState): boolean => s.preference.lab?.enableImessage ?? false,
@@ -28,7 +28,9 @@ export const labPreferSelectors = {
   enableOAuthApps: (s: UserState): boolean => s.preference.lab?.enableOAuthApps ?? false,
   enableSelfLearning: (s: UserState): boolean => s.preference.lab?.enableSelfLearning ?? false,
   enableProjects: (s: UserState): boolean => s.preference.lab?.enableProjects ?? false,
+  // `updateLab` writes both keys, but older clients only write the legacy
+  // `enableTopicAcceptance` — so while both exist it holds the latest choice.
+  enableGoals: (s: UserState): boolean =>
+    s.preference.lab?.enableTopicAcceptance ?? s.preference.lab?.enableGoals ?? false,
   enableTaskVerify: (s: UserState): boolean => s.preference.lab?.enableTaskVerify ?? false,
-  enableTopicAcceptance: (s: UserState): boolean =>
-    s.preference.lab?.enableTopicAcceptance ?? false,
 };

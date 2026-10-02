@@ -2,7 +2,7 @@
 name: acceptance
 license: Apache-2.0
 metadata:
-  version: "0.5.0"
+  version: "0.6.1"
 description: >
   End-to-end verification and self-evidence for a delivery in any repository,
   with or without a preconfigured verify plan. Discover an existing plan when
@@ -184,7 +184,32 @@ transitions or verification conditions. Do not move execution nodes or start a
 new round just to reorganize the checklist; those operations have different
 execution semantics.
 
-1. Use the named acceptance (or create one with `lh acceptance create --help`).
+1. Use the named acceptance, or create one before publishing the flow. If none
+   was named, first run `lh acceptance create --help` and confirm it shows
+   `Usage: lh acceptance create [options]` and `--requirement`. Parent-command
+   help or a zero exit code alone does not prove support. If unavailable, upgrade
+   `@lobehub/cli` to a release that supports this command and check again;
+   updating the skill alone does not upgrade the CLI. If still unavailable,
+   report flow-first creation as blocked. Do not invent a subject ID, upload an
+   empty report, or substitute `lh acceptance run create` (which creates a round).
+
+   ```bash
+   lh acceptance create --title "Checkout recovery" \
+     --requirement "Customers can recover from a declined payment and complete checkout" --json
+   ```
+
+   `--requirement` is a required, nonblank durable business goal; `--title` is
+   optional. Omit `--subject` for a fresh standalone subject, even when an ambient
+   topic exists. Pass `--subject task:<id>`, `topic:<id>`, `document:<id>`, or
+   `standalone:<id>` only for an explicitly supplied subject. Reusing a subject
+   preserves its recorded requirement, title, and state; it does not reopen it.
+   Creation does not create a verification round, report, results, or passing verdict.
+
+   The JSON contains `acceptanceId`, `acceptanceUrl`, `requirement`, `status`,
+   and `subject: { subjectType, subjectId }`. Use `acceptanceId` in all flow
+   commands below, **not** `subject.subjectId` or a verification run ID. Share
+   `acceptanceUrl` verbatim; it already uses the CLI's configured server.
+
    Write a JSON file with `definition: { title, entryNodeId, nodes, edges }`.
    Give nodes and edges stable UUIDs. Each node has `id` and exactly one of
    `criterionId` (existing check asset), `check: { id, title, definition }`
@@ -297,7 +322,7 @@ passing tests support that evidence; they do not replace it.
 | New/changed API **plus** the UI consuming it                | **Web**, full-stack (agent-browser + network capture) | [surfaces/web.md](surfaces/web.md#web-full-stack)      |
 | Desktop-only behavior (native windows, IPC, packaged shell) | **Electron** (agent-browser `--cdp`)                  | [surfaces/electron.md](surfaces/electron.md)           |
 | Native macOS app / OS chrome agent-browser can't reach      | **Native** (osascript + screencapture, local macOS)   | [surfaces/native.md](surfaces/native.md)               |
-| Native iOS behavior, gestures, device-size layout           | **iOS Simulator** (AXe/native CLI + `simctl`)         | [surfaces/ios-simulator.md](surfaces/ios-simulator.md) |
+| Native iOS behavior, gestures, device-size layout           | **iOS Simulator** (sim-use/AXe + `simctl`)            | [surfaces/ios-simulator.md](surfaces/ios-simulator.md) |
 
 - **Use CLI alone only when the required outcome has no UI surface.** If a visible
   outcome cannot be exercised, report that acceptance as incomplete instead of
@@ -342,22 +367,101 @@ process. Keep required evidence complete; shorten its presentation, not the work
 
 ## Final handoff (mandatory)
 
+**Cloud browser links use `https://lobehub.com`.** For all acceptance, round,
+cleanup, and upgrade URLs in this skill (including instructions below that say
+"verbatim"), normalize LobeHub Cloud origins to `https://lobehub.com`, preserving
+the path, query, and fragment. Cloud hosts are `lobehub.com` and its subdomains.
+Keep self-hosted and development origins unchanged. This changes display links,
+not the CLI's configured API server.
+Keep the Skill installation resource at
+`https://app.lobehub.com/acceptance/skill.md`.
+
+Close every browser session this run opened
+(`agent-browser --session <name> close`, [web teardown](surfaces/web.md#web-teardown))
+before handing off; a session left open keeps a full browser running
+indefinitely. Stop this run's [resource guard](references/resource-guard.md)
+(`resource-guard.sh stop --state-dir <run state dir>`) as well, and state in the
+round report whether it
+reached yellow or red and what that stopped; a run that hit red must say which
+checks it left `blocked` instead of passing.
+
 Before declaring the task done, prove coverage: for each check with
 `requiredEvidence`, every declared `type` is present at least once. Report it
 explicitly; a missing type holds the delivery at `uncertain` no matter how good
 the work is.
 
-The final response MUST include the published acceptance URL together with the
-coverage result — never only a check-result id or a prose claim. Expose only the
-**acceptance** (`/acceptance/<acceptanceId>`), the stable cross-round decision
-surface; append `?r=<roundIndex>` for this round's fixed snapshot.
+**Storage limits require a user-facing recovery handoff.** For report ingest,
+atomic evidence upload, or result submission with a file, recognize
+`recovery.reason: "storage_quota"`, `failedEvidence[].reason: "storage_quota"`,
+or a `storage_block:` error. Do not stop at "upload failed" or "noted in the PR":
+
+- In the final response, state that storage limits blocked publication, distinguish
+  locally observed results from uploaded evidence, and report the actual coverage.
+  Include the saved acceptance/round links when available; do not invent them for
+  an atomic submission that failed before saving a result.
+- Give **both recovery options**, in the user's language, using available
+  `recovery.cleanupUrl` and `recovery.upgradeUrl` verbatim and following
+  `recovery.message`, applying the Cloud browser-link rule above. Never delete
+  user data automatically. Deletion is permanent.
+  - Personal scope: **clean up unneeded acceptances** or **upgrade the personal
+    plan**. Acceptance cleanup requires selecting "permanently delete all rounds,
+    reports, and evidence files"; deleting only a record or evidence association
+    does not free storage.
+  - Workspace scope (`recovery.scope: "workspace"`): **clean up that workspace's
+    files** or **upgrade that workspace's plan**. The cleanup link opens its
+    resource library, not an acceptance list; do not invent an acceptance-purge
+    checkbox there. Ask its owner/admin for cleanup or billing access. Personal
+    cleanup or a personal upgrade does not resolve a workspace limit.
+  - If the CLI reports unresolved workspace scope and omits recovery URLs, report
+    that limitation and its scope-check instructions. Do not invent links or
+    substitute personal pages.
+- For an older CLI without recovery metadata, resolve server and scope using
+  `lh doctor --offline --json` and `lh workspace current --json`. Personal scope
+  uses `/acceptance` and `/settings/plans`. For workspace scope, resolve its slug
+  with `lh workspace view --json`, verify the returned ID matches the active
+  workspace, and use `/:workspaceSlug/resource` and
+  `/:workspaceSlug/settings/plans`; there is no `/:workspaceSlug/acceptance`
+  route. If lookup fails, give scope-specific guidance without guessed links.
+  Strip URL username/password when constructing display links. For LobeHub Cloud,
+  personal cleanup uses `https://lobehub.com/acceptance`; personal plan upgrades use
+  `https://lobehub.com/settings/plans`. Workspace resource and plan paths use
+  `https://lobehub.com`. Keep self-hosted users on their configured server.
+- Preserve local reports, artifacts, and the returned retry instructions. Stop
+  blind retries until the user has addressed storage. For a partially ingested
+  report, retry only failed artifacts using `failedEvidence[].retryArgs` or
+  `retryCommand`, not the whole ingest. For an atomic upload/submission that saved
+  nothing, retry that command. Supplementing evidence does not change recorded
+  verdicts; read back coverage and do not claim the delivery is complete while
+  required evidence is missing.
+
+The final response for a completed handoff MUST include the published acceptance
+URL together with the coverage result — never only a check-result id or a prose
+claim. Obtain the links from the path you actually executed:
+
+- **Authored round:** copy `acceptanceUrl` returned by
+  `lh acceptance run ingest --json` verbatim.
+- **Operation-plan round:** follow the read-only
+  [plan handoff lookup](references/plan-format.md#resolve-the-plan-rounds-handoff-links).
+  It resolves the supplied operation ID to its existing run, acceptance, and
+  round using the CLI's actual server configuration. Copy its
+  `acceptanceUrl` output. Do not run authored ingest, create another
+  acceptance, or resubmit evidence merely to obtain a link.
+
+Never guess a host, acceptance ID, or round index. The documented plan lookup is
+the only reconstruction needed for CLIs whose submission output contains only an
+internal run URL. If the run has no acceptance association or the lookup fails,
+report the handoff as blocked and preserve the submitted evidence; do not declare
+delivery complete or fabricate a link.
 Put no images, local paths, local file links, or internal run-page paths in the
 chat reply.
 
 Write the link as a plain-text line, never inside a fenced or inline code block — the
-chat client only linkifies plain text, and a code block makes it unclickable:
+chat client only linkifies plain text, and a code block makes it unclickable.
+Hand off only the acceptance URL: the acceptance page opens on its latest round,
+so a separate per-round link adds nothing for the reader. Replace the placeholder
+below with the URL from the selected path:
 
-Acceptance: <https://lobehub.com/acceptance/ACCEPTANCE_ID> (the placeholder is the id ingest printed; it stays inside the URL)
+Acceptance: <acceptanceUrl, verbatim>
 Coverage: 2/2 criteria, all required evidence uploaded
 
 ## Portability rules
@@ -377,6 +481,7 @@ For both acceptance-checker handoffs and review output, read
 
 | Need                                           | Reference                                                                                                                                                                               |
 | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Bounding a run's memory use                    | [resource-guard.md](references/resource-guard.md) |
 | The project layer, bootstrapping an adapter    | [project-adapter.md](references/project-adapter.md)                                                                                                                                     |
 | Mistakes checklist (read every round)          | [common-mistakes.md](references/common-mistakes.md)                                                                                                                                     |
 | Forcing state, error injection, runtime probes | [probe-mock-patterns.md](references/probe-mock-patterns.md)                                                                                                                             |
@@ -385,6 +490,7 @@ For both acceptance-checker handoffs and review output, read
 | Evidence media, provenance, submission, safety | [evidence.md](references/evidence.md)                                                                                                                                                   |
 | Interaction cost overlay                       | [interaction-cost.md](references/interaction-cost.md)                                                                                                                                   |
 | Web/Electron Chromium CLI commands             | [agent-browser.md](references/agent-browser.md)                                                                                                                                         |
+| iOS Simulator driver CLI commands              | [sim-use.md](references/sim-use.md) (preferred), [axe.md](references/axe.md) (fallback) |
 | Bundled CDP screenshot and macOS capture preflight | [screenshot-helpers.md](references/screenshot-helpers.md) |
 | Authenticated Web session                      | [auth-web.md](references/auth-web.md)                                                                                                                                                   |
 | Native macOS / OS-owned step                   | [computer-use.md](references/computer-use.md)                                                                                                                                           |
