@@ -536,6 +536,50 @@ describe('AgentRuntimeService', () => {
       },
     );
 
+    describe('relay executor (host.llmExecutor)', () => {
+      const executor = { capabilities: ['llm_relay@1'], clientId: 'tab-a', providers: ['ollama'] };
+
+      it('stores the executor the client declared', async () => {
+        await service.createOperation({ ...mockParams, autoStart: false, llmExecutor: executor });
+        const savedState = mockCoordinator.saveAgentState.mock.calls[0][1];
+        expect(savedState.host.llmExecutor).toEqual(executor);
+      });
+
+      it("lets a group member, mirrored onto its parent's channel, inherit the parent's executor", async () => {
+        await mockCoordinator.saveAgentState('parent-op', { host: { llmExecutor: executor } });
+        mockCoordinator.saveAgentState.mockClear();
+
+        await service.createOperation({
+          ...mockParams,
+          appContext: { ...mockParams.appContext, orchestrationRole: 'member' },
+          autoStart: false,
+          parentOperationId: 'parent-op',
+        });
+        const savedState = mockCoordinator.saveAgentState.mock.calls[0][1];
+        expect(savedState.host.llmExecutor).toEqual(executor);
+      });
+
+      it("keeps a genuine sub-agent, streaming on its own channel, off the parent's executor", async () => {
+        await mockCoordinator.saveAgentState('parent-op', { host: { llmExecutor: executor } });
+        mockCoordinator.saveAgentState.mockClear();
+
+        await service.createOperation({
+          ...mockParams,
+          appContext: { ...mockParams.appContext, isSubAgent: true },
+          autoStart: false,
+          parentOperationId: 'parent-op',
+        });
+        const savedState = mockCoordinator.saveAgentState.mock.calls[0][1];
+        expect(savedState.host).not.toHaveProperty('llmExecutor');
+      });
+
+      it('carries no executor for a run nobody declared one for', async () => {
+        await service.createOperation({ ...mockParams, autoStart: false });
+        const savedState = mockCoordinator.saveAgentState.mock.calls[0][1];
+        expect(savedState.host).not.toHaveProperty('llmExecutor');
+      });
+    });
+
     it('should create operation successfully with autoStart=true', async () => {
       mockQueueService.scheduleMessage.mockResolvedValueOnce('message-123');
 
@@ -2829,12 +2873,9 @@ describe('AgentRuntimeService', () => {
       expect(result).toEqual(stubMessages);
     });
 
-    it.each([
-      { skipToolProjection: false, visitorUserId: undefined },
-      { skipToolProjection: true, visitorUserId: 'visitor_1' },
-    ])(
-      'includes visitor rows with skipToolProjection=$skipToolProjection',
-      async ({ skipToolProjection, visitorUserId }) => {
+    it.each([undefined, 'visitor_1'])(
+      'includes visitor rows (visitor=%s)',
+      async (visitorUserId) => {
         // Regression: `MessageModel.query()` hides share-visitor messages by
         // default. A visitor run executes under the creator's identity, so
         // without the opt-in the terminal snapshot for the visitor's topic is
@@ -2848,10 +2889,10 @@ describe('AgentRuntimeService', () => {
           principal: visitorUserId ? { actor: { shareVisitor: { visitorUserId } } } : undefined,
         } as any);
 
-        expect(queryMessages).toHaveBeenCalledWith(expect.anything(), {
-          allowShareVisitor: true,
-          skipToolProjection,
-        });
+        // The pushed snapshot always carries whole tool payloads now: it only
+        // reaches a client that did not ask for protocol 2, which has no way to
+        // fetch an omitted payload back.
+        expect(queryMessages).toHaveBeenCalledWith(expect.anything(), { allowShareVisitor: true });
       },
     );
 

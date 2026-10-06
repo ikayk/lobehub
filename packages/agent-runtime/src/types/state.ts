@@ -168,12 +168,44 @@ export interface AgentRunPlan {
  * carried by the runtime without interpretation.
  */
 export interface AgentRunHostEnvelope {
+  /**
+   * Wire protocol the client that started this run asked for. `2` means that
+   * client reconciles its message list from `message_patch` revisions, so the
+   * host may stop pushing whole `uiMessages` snapshots with the step and
+   * terminal events.
+   *
+   * Absent means `1`: an older bundle that only learns the settled list from
+   * what the server pushes, or a client the rollout has not reached.
+   * Deliberately declared by the client rather than derived from a preference
+   * or a transport check — a desktop build months behind the server reads the
+   * same events over the same socket, and guessing on its behalf is how it ends
+   * up rendering a run it cannot reconstruct.
+   */
+  clientProtocol?: 1 | 2;
   /** Serialized lifecycle hook configs (webhook mode), so a queue worker can rebuild the dispatcher. */
   hooks?: SerializedAgentHook[];
   /** Opt into runtime state snapshots on step_complete events. Defaults to false. */
   includeFinalState?: boolean;
+  /**
+   * The client that started this run can execute single LLM attempts the
+   * server relays to it (`llm_execute`), for model providers only the user's
+   * device can reach (a local Ollama, a private-network endpoint). Declared by
+   * the client, like `clientProtocol`; absent means no client will pick up a
+   * relayed call, so such a provider fails fast instead of waiting.
+   */
+  llmExecutor?: AgentRunLlmExecutor;
   /** Queue retry policy for step scheduling. */
   queue?: { retries?: number; retryDelay?: string };
+}
+
+/** A client's declaration that it can run relayed LLM attempts. */
+export interface AgentRunLlmExecutor {
+  /** Relay protocol versions the client speaks, e.g. `llm_relay@1`. */
+  capabilities: string[];
+  /** Stable id of the declaring client (tab / desktop window), preferred as the executor. */
+  clientId: string;
+  /** Provider ids this client confirmed it can reach directly. */
+  providers: string[];
 }
 
 /**

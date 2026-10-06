@@ -17,6 +17,7 @@ import {
 } from '@/server/services/goal/recoveryPolicy';
 import { GoalReportStore, type SubmitGoalReportInput } from '@/server/services/goal/reportStore';
 import { scheduleGoalAdvance } from '@/server/services/goal/scheduler';
+import { GoalWaitService, goalWakeEventSchema } from '@/server/services/goal/wait';
 import {
   HeteroOperationPrincipalError,
   resolveActiveHeteroOperationPrincipal,
@@ -157,6 +158,20 @@ function mapGoalError(error: unknown, operation: string): never {
 }
 
 export const goalRouter = router({
+  wake: goalWriteProcedure
+    .input(goalWakeEventSchema.extend({ id: z.string() }))
+    .mutation(async ({ ctx, input }) => {
+      const { id, ...event } = input;
+      const goal = await ctx.goalModel.findById(id);
+      if (!goal) throw new TRPCError({ code: 'NOT_FOUND', message: 'Goal not found' });
+      assertWorkspaceRowManageable(ctx, goal.userId, 'goal');
+      const data = await new GoalWaitService(
+        ctx.serverDB,
+        ctx.userId,
+        ctx.workspaceId ?? undefined,
+      ).deliver(id, event);
+      return { data, success: true };
+    }),
   // A plan is an operation result; the turn token further restricts ingestion to its Goal.
   submitOperationPlan: heteroAuthedProcedure
     .use(serverDatabase)
@@ -720,6 +735,26 @@ export const goalRouter = router({
         return { data, message, success: true };
       } catch (error) {
         mapGoalError(error, 'resume');
+      }
+    }),
+
+  /**
+   * End the goal by hand — achieved or canceled — and interrupt its live runs.
+   * Reopening a closed goal is `resume`.
+   */
+  close: goalWriteProcedure
+    .input(idInput.extend({ status: z.enum(['achieved', 'canceled']) }))
+    .mutation(async ({ ctx, input: { id, status } }) => {
+      try {
+        // Closing cancels live runs, so it carries the same ownership check as restart.
+        const goal = await ctx.goalModel.findById(id);
+        if (!goal) throw new TRPCError({ code: 'NOT_FOUND', message: 'Goal not found' });
+        assertWorkspaceRowManageable(ctx, goal.userId, 'goal');
+
+        const data = await ctx.goalService.close(id, status);
+        return { data, message: `Goal ${status}`, success: true };
+      } catch (error) {
+        mapGoalError(error, 'close');
       }
     }),
 

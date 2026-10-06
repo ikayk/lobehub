@@ -1,4 +1,5 @@
 import type { AgentStreamClientFeature } from '@lobechat/agent-gateway-client';
+import { CLIENT_PROTOCOL_VERSION } from '@lobechat/agent-gateway-client';
 import type {
   ExecAgentAppContext,
   ExecAgentResult,
@@ -8,7 +9,9 @@ import type {
   UserInterventionConfig,
 } from '@lobechat/types';
 
+import { canUseGatewayProtocolV2 } from '@/helpers/gatewayProtocol';
 import { lambdaClient } from '@/libs/trpc/client';
+import { buildLlmExecutorDeclaration } from '@/services/llmRelay';
 
 export type { ExecAgentResult, ScheduleAgentRunParams, ScheduleAgentRunResult };
 
@@ -273,8 +276,24 @@ class AiAgentService {
     params: ExecAgentTaskParams,
     options?: { signal?: AbortSignal },
   ): Promise<ExecAgentResult> {
+    // Ask for protocol-v2 delivery — message revisions instead of whole message
+    // snapshots — when this client both understands it and is inside the
+    // rollout. Anything else stays on the pushed snapshots, which is what an
+    // older bundle needs to render the run at all. A caller may still pin it
+    // (a replay harness asserting v1 delivery).
+    const clientProtocol = canUseGatewayProtocolV2() ? CLIENT_PROTOCOL_VERSION : undefined;
+    // Inside the `agent_llm_relay` rollout this tab offers to run the LLM calls
+    // of providers only this device can reach (a local Ollama, a private
+    // endpoint); the server hands them over as `llm_execute`.
+    const llmExecutor = buildLlmExecutorDeclaration();
+
     return await lambdaClient.aiAgent.execAgent.mutate(
-      { ...params, streamFeatures: STREAM_FEATURES },
+      {
+        clientProtocol,
+        ...(llmExecutor && { llmExecutor }),
+        ...params,
+        streamFeatures: STREAM_FEATURES,
+      },
       options,
     );
   }

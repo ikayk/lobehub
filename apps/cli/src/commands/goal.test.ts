@@ -9,6 +9,7 @@ import { registerGoalCommand } from './goal';
 const { mockClient } = vi.hoisted(() => ({
   mockClient: {
     goal: {
+      wake: { mutate: vi.fn() },
       create: { mutate: vi.fn() },
       delete: { mutate: vi.fn() },
       submitPlan: { mutate: vi.fn() },
@@ -540,7 +541,6 @@ describe('goal create command', () => {
       'Repair',
       '--max-attempts-per-task',
       '4',
-      '--supervise',
       '--max-supervision-incidents',
       '6',
     ]);
@@ -552,6 +552,30 @@ describe('goal create command', () => {
           supervision: { enabled: true, maxIncidents: 6 },
         }),
         tasks: ['Inspect', 'Repair'],
+      }),
+    );
+  });
+
+  it('sends supervision even when no incident cap is given', async () => {
+    mockClient.goal.create.mutate.mockResolvedValue({
+      data: {
+        decisions: [],
+        edges: [],
+        events: [],
+        goal: { id: 'goal-1', requirement: null, status: 'planning', title: 'Fix bugs' },
+        nodes: [],
+        workVersions: [],
+      },
+    });
+
+    await createProgram().parseAsync(['node', 'test', 'goal', 'create', 'Fix bugs']);
+
+    // An independently distributed CLI can be pointed at a server that predates
+    // the creation invariant, so supervision must not depend on the server
+    // filling it in — nor on the user remembering to pass an incident cap.
+    expect(mockClient.goal.create.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({ supervision: { enabled: true } }),
       }),
     );
   });
@@ -675,5 +699,41 @@ describe('goal retire', () => {
       reason: 'duplicate branch',
     });
     expect(log.info).toHaveBeenCalledWith('Retired 2 node(s)');
+  });
+});
+
+describe('goal event delivery', () => {
+  afterEach(() => vi.restoreAllMocks());
+  it.each([true, false])('reports accepted=%s from the event endpoint', async (accepted) => {
+    const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+    mockClient.goal.wake.mutate.mockResolvedValue({
+      data: { accepted, ...(accepted ? {} : { reason: 'unmatched' }) },
+    });
+    await createProgram().parseAsync([
+      'node',
+      'lh',
+      'goal',
+      'wake',
+      'goal-1',
+      '--token',
+      'turn-1',
+      '--event',
+      'event-1',
+      '--type',
+      'external.result',
+      '--key',
+      'experiment-1',
+      '--json',
+    ]);
+    expect(mockClient.goal.wake.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'goal-1',
+        waitToken: 'turn-1',
+        eventId: 'event-1',
+        type: 'external.result',
+        key: 'experiment-1',
+      }),
+    );
+    expect(output).toHaveBeenCalledWith(expect.stringContaining(`"accepted": ${accepted}`));
   });
 });

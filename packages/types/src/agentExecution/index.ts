@@ -209,6 +209,16 @@ export interface ExecAgentClientIds {
   userMessageId?: string;
 }
 
+/** A client's declaration that it can run relayed LLM attempts (`llm_execute`). */
+export interface ExecAgentLlmExecutor {
+  /** Relay protocol versions the client speaks, e.g. `llm_relay@1`. */
+  capabilities: string[];
+  /** Stable id of the declaring client (tab / desktop window). */
+  clientId: string;
+  /** Provider ids this client can reach directly. */
+  providers: string[];
+}
+
 export interface ExecAgentParams {
   /** The agent ID to run (either agentId or slug is required) */
   agentId?: string;
@@ -225,6 +235,12 @@ export interface ExecAgentParams {
    * input — derived from the request context.
    */
   clientIp?: string;
+  /**
+   * Wire protocol this client speaks; `2` declares that it reconciles its
+   * message list from `message_patch` revisions, so the server may stop
+   * pushing whole `uiMessages` snapshots to it. Absent ⇒ 1.
+   */
+  clientProtocol?: 1 | 2;
   /** Explicit device ID to bind to the topic and activate for this run */
   deviceId?: string;
   /** Optional existing message IDs to include in context */
@@ -241,6 +257,12 @@ export interface ExecAgentParams {
   includeFinalState?: boolean;
   /** Additional system instructions appended after the agent's own system role */
   instructions?: string;
+  /**
+   * This client can execute single LLM attempts the server relays to it
+   * (`llm_execute`) for model providers only this device can reach. Lands on
+   * `state.host.llmExecutor`.
+   */
+  llmExecutor?: ExecAgentLlmExecutor;
   /** Current desktop's device ID; used only when the effective target is `local`. */
   localDeviceId?: string;
   /** Override the agent's default model */

@@ -337,6 +337,32 @@ export class GoalGraphModel {
     });
 
   /**
+   * Work ids this goal already declares as produced, on any node.
+   *
+   * The claim predicate for deliverables: one Work is one deliverable, and it
+   * belongs to the node that first delivered it. A later round that merely
+   * revises the same resource (a shared document every task appends to is the
+   * common case) must not re-declare it on its own node, or the goal history
+   * repeats one deliverable under every task and its Works list counts one
+   * artifact several times.
+   *
+   * Read from the database rather than from a graph snapshot because the
+   * harvest of one settle has to see the links an earlier settle — possibly in
+   * the same tick — already wrote. Ticks of one goal are serialized by the
+   * dispatch advisory lock, so this read-then-write needs no extra guard.
+   */
+  listProducedWorkIds = async (goalId: string): Promise<Set<string>> => {
+    const rows = await this.db
+      .select({ workId: workVersions.workId })
+      .from(goalNodeWorkVersions)
+      .innerJoin(goalNodes, eq(goalNodeWorkVersions.nodeId, goalNodes.id))
+      .innerJoin(workVersions, eq(goalNodeWorkVersions.workVersionId, workVersions.id))
+      .where(and(eq(goalNodes.goalId, goalId), eq(goalNodeWorkVersions.relation, 'produced')));
+
+    return new Set(rows.map((row) => row.workId));
+  };
+
+  /**
    * How many of a goal's tasks are occupying a concurrency slot.
    *
    * Counted in the database rather than from a graph snapshot so it can be read
@@ -357,6 +383,67 @@ export class GoalGraphModel {
         ),
       );
     return row?.count ?? 0;
+  };
+
+  /**
+   * The goal a task belongs to — as the responsible Task of one of its nodes,
+   * as the goal's own execution carrier, or through the nearest ancestor that is
+   * either (goal Tasks spawn their own subtasks). Lets a Task page link back to
+   * the goal that owns it.
+   */
+  findGoalByTaskId = async (taskId: string): Promise<{ id: string; title: string } | undefined> => {
+    // Walk up `parent_task_id`, nearest first. The task tree has no depth limit,
+    // so stop on a revisited id instead of a fixed depth: a corrupt cycle ends
+    // without truncating a valid deep chain.
+    const chain = await this.db.execute<{ depth: number; id: string }>(sql`
+      WITH RECURSIVE chain(id, depth, visited) AS (
+        SELECT ${tasks.id}, 0, ARRAY[${tasks.id}] FROM ${tasks} WHERE ${tasks.id} = ${taskId}
+        UNION ALL
+        SELECT ${tasks.parentTaskId}, chain.depth + 1, chain.visited || ${tasks.parentTaskId}
+        FROM ${tasks} JOIN chain ON ${tasks.id} = chain.id
+        WHERE ${tasks.parentTaskId} IS NOT NULL
+          AND NOT (${tasks.parentTaskId} = ANY(chain.visited))
+      )
+      SELECT id, depth FROM chain
+    `);
+    const depthOf = new Map(chain.rows.map((row) => [row.id, Number(row.depth)]));
+    if (depthOf.size === 0) return undefined;
+    const taskIds = [...depthOf.keys()];
+
+    const rows = await this.db
+      .select({
+        carrierTaskId: goals.subjectId,
+        createdAt: goals.createdAt,
+        id: goals.id,
+        nodeTaskId: goalNodes.taskId,
+        subjectType: goals.subjectType,
+        title: goals.title,
+      })
+      .from(goals)
+      .leftJoin(goalNodes, and(eq(goalNodes.goalId, goals.id), inArray(goalNodes.taskId, taskIds)))
+      .where(
+        and(
+          this.ownership(),
+          or(
+            inArray(goalNodes.taskId, taskIds),
+            and(eq(goals.subjectType, 'task'), inArray(goals.subjectId, taskIds)),
+          ),
+        ),
+      );
+
+    const depthOfRow = (row: (typeof rows)[number]) =>
+      Math.min(
+        row.nodeTaskId ? (depthOf.get(row.nodeTaskId) ?? Infinity) : Infinity,
+        row.subjectType === 'task' && row.carrierTaskId
+          ? (depthOf.get(row.carrierTaskId) ?? Infinity)
+          : Infinity,
+      );
+    const [nearest] = rows.sort(
+      (a, b) =>
+        depthOfRow(a) - depthOfRow(b) ||
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+    return nearest ? { id: nearest.id, title: nearest.title } : undefined;
   };
 
   createNode = async (goalId: string, input: CreateNodeInput) =>
