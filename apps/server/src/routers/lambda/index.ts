@@ -80,11 +80,13 @@ import { oauthAppRouter } from './oauthApp';
 import { oauthDeviceFlowRouter } from './oauthDeviceFlow';
 import { pluginRouter } from './plugin';
 import { projectRouter } from './project';
+import { projectWorkingDirectoryRouter } from './projectWorkingDirectory';
 import { pushTokenRouter } from './pushToken';
 import { ragEvalRouter } from './ragEval';
 import { recentRouter } from './recent';
 import { resourcePermissionRouter } from './resourcePermission';
 import { resourceTransferRequestRouter } from './resourceTransferRequest';
+import { sandboxStorageRouter } from './sandboxStorage';
 import { scmRouter } from './scm';
 import { searchRouter } from './search';
 import { sessionRouter } from './session';
@@ -120,6 +122,7 @@ export const lambdaRouter = router({
   agentEvalExternal: agentEvalExternalRouter,
   agentLabel: agentLabelRouter,
   agentSkills: agentSkillsRouter,
+  sandboxStorage: sandboxStorageRouter,
   agentTrace: agentTraceRouter,
   expertise: expertiseRouter,
   agentSignal: agentSignalRouter,
@@ -171,6 +174,7 @@ export const lambdaRouter = router({
   oauthDeviceFlow: oauthDeviceFlowRouter,
   plugin: pluginRouter,
   project: projectRouter,
+  projectWorkingDirectory: projectWorkingDirectoryRouter,
   pushToken: pushTokenRouter,
   ragEval: ragEvalRouter,
   recent: recentRouter,

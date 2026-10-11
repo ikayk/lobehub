@@ -241,7 +241,12 @@ export class CompletionLifecycle {
       await this.agentOperationModel.recordStart(params);
     } catch (error) {
       persisted = false;
-      log('[%s] Failed to record operation start (non-fatal): %O', params.operationId, error);
+      // Hook configuration may contain inline authorization headers. Never log
+      // a database error that could repeat its bound metadata parameters.
+      const hooks = params.metadata?._hooks;
+      if (hooks && (!Array.isArray(hooks) || hooks.length > 0))
+        log('[%s] Failed to record operation start (non-fatal)', params.operationId);
+      else log('[%s] Failed to record operation start (non-fatal): %O', params.operationId, error);
     }
 
     // Auto-instantiate the task's verify plan at run start so the completion gate
@@ -331,7 +336,13 @@ export class CompletionLifecycle {
    */
   private statusForReason(
     reason: string,
-  ): 'done' | 'error' | 'interrupted' | 'waiting_for_human' | 'waiting_for_async_tool' {
+  ):
+    | 'done'
+    | 'error'
+    | 'interrupted'
+    | 'waiting_for_human'
+    | 'waiting_for_async_tool'
+    | 'waiting_for_client' {
     switch (reason) {
       case 'error': {
         return 'error';
@@ -344,6 +355,9 @@ export class CompletionLifecycle {
       }
       case 'waiting_for_async_tool': {
         return 'waiting_for_async_tool';
+      }
+      case 'waiting_for_client': {
+        return 'waiting_for_client';
       }
       default: {
         return 'done';
@@ -368,7 +382,8 @@ export class CompletionLifecycle {
           reason === 'cost_limit' ||
           reason === 'tool_call_repeat_limit' ||
           reason === 'waiting_for_human' ||
-          reason === 'waiting_for_async_tool'
+          reason === 'waiting_for_async_tool' ||
+          reason === 'waiting_for_client'
         ? reason
         : this.statusForReason(reason);
 
@@ -926,7 +941,9 @@ export class CompletionLifecycle {
     // schedules a fresh continuation operation and then retires this parked
     // segment; the continuation receives the serialized hooks through
     // `host.hooks`.
-    const isAsyncToolPark = reason === 'waiting_for_async_tool';
+    // `waiting_for_client` (no client to run the next LLM call) parks the same
+    // operation the same way: it resumes under this id or expires to `error`.
+    const isAsyncToolPark = reason === 'waiting_for_async_tool' || reason === 'waiting_for_client';
     let shouldRetainHooksForRetry = false;
 
     try {

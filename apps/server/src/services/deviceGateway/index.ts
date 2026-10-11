@@ -19,10 +19,15 @@ import type {
   DeviceAppUpdateInstallResult,
   DeviceAppUpdateState,
   DeviceAppUpdateStateResult,
+  DeviceCliRestartParams,
+  DeviceCliUpdateState,
+  DeviceCliUpdateStateResult,
+  DeviceCloseTerminalResult,
   DeviceCopyAssetForPublishResult,
   DeviceCopyProjectFileItem,
   DeviceCopyProjectFileResultItem,
   DeviceCreateProjectEntryResult,
+  DeviceCreateTerminalSessionResult,
   DeviceDirectoryBrowseResult,
   DeviceExternalAssetForPublishResult,
   DeviceGitAddWorktreeResult,
@@ -56,6 +61,7 @@ import type {
   DeviceProjectDirectoryListResult,
   DeviceProjectFileIndexResult,
   DeviceProjectFileSearchResult,
+  DeviceReadTerminalResult,
   DeviceRenameProjectFileResult,
   DeviceTrashProjectFilesResult,
   DeviceUnavailableErrorData,
@@ -130,6 +136,13 @@ const assertNotWorkspaceRoot = (
 
 export type { DeviceAttachment, DeviceStatusResult, DeviceSystemInfo };
 
+/**
+ * Outcome of a device system-info read. `reason` is the gateway's code when it
+ * gave one (`TIMEOUT`, `DEVICE_OFFLINE`, `DEVICE_NOT_FOUND`), otherwise a local one.
+ */
+export type DeviceSystemInfoRead =
+  { ok: true; systemInfo: DeviceSystemInfo } | { ok: false; reason: string };
+
 interface AppUpdateRpcParams {
   deviceId: string;
   timeout?: number;
@@ -140,6 +153,18 @@ interface AppUpdateRpcParams {
 /** One extra attempt for a device read; see `readDevices`. */
 const DEVICE_READ_ATTEMPTS = 2;
 const DEVICE_READ_RETRY_DELAY_MS = 250;
+
+/** Scope every terminal RPC carries; mirrors {@link AppUpdateRpcParams}. */
+interface TerminalRpcScope {
+  deviceId: string;
+  timeout?: number;
+  userId: string;
+  workspaceId?: string;
+}
+
+/** The five device RPCs that make up one interactive terminal session. */
+type TerminalRpcMethod =
+  'closeTerminal' | 'createTerminalSession' | 'readTerminal' | 'resizeTerminal' | 'writeTerminal';
 
 export class DeviceGateway {
   private client: GatewayHttpClient | null = null;
@@ -246,15 +271,36 @@ export class DeviceGateway {
     deviceId: string,
     workspaceId?: string,
   ): Promise<DeviceSystemInfo | undefined> {
+    const read = await this.readDeviceSystemInfo(userId, deviceId, workspaceId);
+    return read.ok ? read.systemInfo : undefined;
+  }
+
+  /**
+   * Like {@link queryDeviceSystemInfo}, but a failed read says why. Use it when
+   * "the device did not answer" must not be mistaken for "the device answered
+   * without this capability" — e.g. gating a tool on `supportedTools`.
+   */
+  async readDeviceSystemInfo(
+    userId: string,
+    deviceId: string,
+    workspaceId?: string,
+  ): Promise<DeviceSystemInfoRead> {
     const client = this.getClient();
-    if (!client) return undefined;
+    if (!client) return { ok: false, reason: 'GATEWAY_NOT_CONFIGURED' };
 
     try {
       const result = await client.getDeviceSystemInfo(userId, deviceId, workspaceId);
-      return result.success ? result.systemInfo : undefined;
-    } catch {
-      log('queryDeviceSystemInfo: failed for userId=%s, deviceId=%s', userId, deviceId);
-      return undefined;
+      if (result.success && result.systemInfo) return { ok: true, systemInfo: result.systemInfo };
+      log(
+        'readDeviceSystemInfo: unanswered for userId=%s, deviceId=%s: %s',
+        userId,
+        deviceId,
+        result.error,
+      );
+      return { ok: false, reason: result.error ?? 'NO_SYSTEM_INFO' };
+    } catch (error) {
+      log('readDeviceSystemInfo: failed for userId=%s, deviceId=%s: %O', userId, deviceId, error);
+      return { ok: false, reason: describeGatewayRequestFailure(error, 'RPC call').code };
     }
   }
 
@@ -262,6 +308,10 @@ export class DeviceGateway {
    * The device's health samples held by the gateway (two days), observed at or
    * after `since`. Unlike the RPC reads this works while the device is
    * offline — the samples live in gateway storage, not on the device.
+   *
+   * A failed read degrades to no samples: the chart is a polled side panel,
+   * and surfacing a gateway blip as a 500 only turns each poll (and its SWR
+   * retries) into an error log. The next poll picks the history back up.
    */
   async queryDeviceMetrics(params: {
     deviceId: string;
@@ -271,10 +321,20 @@ export class DeviceGateway {
   }): Promise<DeviceMetricSample[]> {
     const client = this.getClient();
     if (!client) return [];
-    return client.getDeviceMetrics(params.userId, params.deviceId, {
-      since: params.since,
-      workspaceId: params.workspaceId,
-    });
+    try {
+      return await client.getDeviceMetrics(params.userId, params.deviceId, {
+        since: params.since,
+        workspaceId: params.workspaceId,
+      });
+    } catch (error) {
+      console.warn('[DeviceGateway] device metrics read failed; returning no samples', {
+        deviceId: params.deviceId,
+        error: error instanceof Error ? error.message : String(error),
+        userId: params.userId,
+        workspaceId: params.workspaceId,
+      });
+      return [];
+    }
   }
 
   /**
@@ -674,6 +734,7 @@ export class DeviceGateway {
     timeout?: number;
     type:
       | 'codebuddy'
+      | 'codex'
       | 'cursor'
       | 'devin'
       | 'droid'
@@ -1801,7 +1862,10 @@ export class DeviceGateway {
     timeout?: number;
     userId: string;
     workspaceId?: string;
-  }): Promise<{ exists: boolean; isDirectory: boolean; repoType?: 'git' | 'github' } | undefined> {
+  }): Promise<
+    | { exists: boolean; isDirectory: boolean; repositoryUrl?: string; repoType?: 'git' | 'github' }
+    | undefined
+  > {
     const { userId, deviceId, path, timeout = 8000, workspaceId } = params;
     const client = this.getClient();
     if (!client) return undefined;
@@ -2047,6 +2111,81 @@ export class DeviceGateway {
       : result;
   }
 
+  // ─── Interactive terminal (PTY) ───
+  //
+  // A terminal is a session the caller drives, not a one-shot read, so these
+  // deliberately THROW on failure instead of returning `undefined` the way the
+  // best-effort readers above do: the panel has to say why a shell did not open
+  // (device offline, a client without PTY support) rather than wait forever on
+  // one that will never exist.
+
+  async createTerminalSession(
+    params: TerminalRpcScope & { cols: number; cwd?: string; rows: number },
+  ): Promise<DeviceCreateTerminalSessionResult> {
+    return this.invokeTerminalRpc('createTerminalSession', params, {
+      cols: params.cols,
+      cwd: params.cwd,
+      rows: params.rows,
+    });
+  }
+
+  async writeTerminal(params: TerminalRpcScope & { data: string; id: string }): Promise<void> {
+    await this.invokeTerminalRpc('writeTerminal', params, { data: params.data, id: params.id });
+  }
+
+  async readTerminal(
+    params: TerminalRpcScope & { cursor: number; id: string },
+  ): Promise<DeviceReadTerminalResult> {
+    return this.invokeTerminalRpc('readTerminal', params, {
+      cursor: params.cursor,
+      id: params.id,
+    });
+  }
+
+  async resizeTerminal(
+    params: TerminalRpcScope & { cols: number; id: string; rows: number },
+  ): Promise<void> {
+    await this.invokeTerminalRpc('resizeTerminal', params, {
+      cols: params.cols,
+      id: params.id,
+      rows: params.rows,
+    });
+  }
+
+  async closeTerminal(
+    params: TerminalRpcScope & { id: string },
+  ): Promise<DeviceCloseTerminalResult> {
+    return this.invokeTerminalRpc('closeTerminal', params, { id: params.id });
+  }
+
+  /**
+   * Relay one terminal RPC and unwrap its result.
+   *
+   * Every call carries the `cli` channel hint: the PTY lives in the `lh
+   * connect` process, so on a machine also running the desktop app the RPC has
+   * to reach that connection — the desktop's own terminal is local-only and
+   * would refuse these. A gateway that predates the hint ignores it, which is
+   * why the refusal below still has to surface as an error.
+   */
+  private async invokeTerminalRpc<T>(
+    method: TerminalRpcMethod,
+    params: TerminalRpcScope,
+    rpcParams: Record<string, unknown>,
+  ): Promise<T> {
+    const { deviceId, timeout = 15_000, userId, workspaceId } = params;
+    const client = this.getClient();
+    if (!client) throw new Error('Device gateway is not configured on this deployment.');
+
+    const result = await client.invokeRpc<T>(
+      { channel: 'cli', deviceId, timeout, userId, workspaceId },
+      { method, params: rpcParams },
+    );
+    // `writeTerminal` / `resizeTerminal` answer with no payload, so absence of
+    // `data` is not a failure — only an explicit `success: false` is.
+    if (!result.success) throw new Error(result.error || `${method} failed`);
+    return result.data as T;
+  }
+
   /**
    * Shared relay for the remote app-update RPCs. Only the desktop app can
    * update itself, so the call asks for the `desktop` channel; an older gateway
@@ -2074,6 +2213,59 @@ export class DeviceGateway {
         message.includes('does not support remote updates') ||
         message.includes('Unknown device RPC method');
       return { message, status: unsupported ? 'unsupported' : 'unavailable' };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log('%s: error for deviceId=%s — %s', method, deviceId, message);
+      return { message, status: 'unavailable' };
+    }
+  }
+
+  async getCliUpdateState(params: AppUpdateRpcParams): Promise<DeviceCliUpdateStateResult> {
+    return this.invokeCliUpdate('getCliUpdateState', params);
+  }
+
+  async checkCliUpdate(params: AppUpdateRpcParams): Promise<DeviceCliUpdateStateResult> {
+    return this.invokeCliUpdate('checkCliUpdate', params);
+  }
+
+  async restartCli(
+    params: AppUpdateRpcParams & DeviceCliRestartParams,
+  ): Promise<DeviceCliUpdateStateResult> {
+    return this.invokeCliUpdate('restartCli', params, {
+      requestId: params.requestId,
+      update: params.update,
+    });
+  }
+
+  private async invokeCliUpdate(
+    method: 'getCliUpdateState' | 'checkCliUpdate' | 'restartCli',
+    params: AppUpdateRpcParams,
+    restartParams?: DeviceCliRestartParams,
+  ): Promise<DeviceCliUpdateStateResult> {
+    const { deviceId, timeout = 15_000, userId, workspaceId } = params;
+    const client = this.getClient();
+    if (!client) return { message: 'Device Gateway is not configured', status: 'unavailable' };
+
+    try {
+      const result = await client.invokeRpc<DeviceCliUpdateState>(
+        { channel: 'cli', deviceId, timeout, userId, workspaceId },
+        { method, ...(restartParams ? { params: restartParams } : {}) },
+      );
+      if (result.success && result.data !== undefined) return { state: result.data, status: 'ok' };
+
+      const message = result.error || `${method} failed`;
+      const unsupported =
+        message.includes('does not support remote CLI updates') ||
+        message.includes('Unknown device RPC method');
+      log('%s: failed for deviceId=%s — %s', method, deviceId, message);
+      return {
+        message: message.replace('CLI_MAINTENANCE_REJECTED: ', ''),
+        status: unsupported
+          ? 'unsupported'
+          : message.startsWith('CLI_MAINTENANCE_REJECTED: ')
+            ? 'rejected'
+            : 'unavailable',
+      };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       log('%s: error for deviceId=%s — %s', method, deviceId, message);

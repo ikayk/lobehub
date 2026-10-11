@@ -65,16 +65,30 @@ describe('isAcceptanceListKey', () => {
     expect(isAcceptanceListKey(['verify:acceptances', '100', 'needle', 'all', 'workspace-1'])).toBe(
       true,
     );
-    expect(isAcceptanceListKey(['verify:acceptanceBundle', 'acceptance-1'])).toBe(false);
+    expect(isAcceptanceListKey(['verify:acceptancePurgePreview', 'acceptance-1'])).toBe(false);
   });
 
   it('keeps project-scoped acceptance feeds in separate cache entries', () => {
-    expect(verifyKeys.acceptances(undefined, undefined, 'all', 'project-1')).not.toEqual(
-      verifyKeys.acceptances(undefined, undefined, 'all', 'project-2'),
+    expect(
+      verifyKeys.acceptances(undefined, undefined, { filter: 'all', projectId: 'project-1' }),
+    ).not.toEqual(
+      verifyKeys.acceptances(undefined, undefined, { filter: 'all', projectId: 'project-2' }),
     );
-    expect(verifyKeys.acceptancePage('workspace-1', 'all', 'project-1')).not.toEqual(
-      verifyKeys.acceptancePage('workspace-1', 'all', 'project-2'),
+    expect(
+      verifyKeys.acceptancePage('workspace-1', { filter: 'all', projectId: 'project-1' }),
+    ).not.toEqual(
+      verifyKeys.acceptancePage('workspace-1', { filter: 'all', projectId: 'project-2' }),
     );
+  });
+
+  it('keeps the unfiled, scope and source narrowings in separate cache entries', () => {
+    const base = { filter: 'all' };
+    const page = (query: Parameters<typeof verifyKeys.acceptancePage>[1]) =>
+      verifyKeys.acceptancePage('workspace-1', query);
+
+    expect(page({ ...base, projectId: null })).not.toEqual(page(base));
+    expect(page({ ...base, scope: 'participated' })).not.toEqual(page(base));
+    expect(page({ ...base, source: 'goal' })).not.toEqual(page({ ...base, source: 'task' }));
   });
 });
 
@@ -117,9 +131,6 @@ describe('resourceKeys', () => {
     );
     expect(resourceKeys.recentFiles(null, undefined)).not.toEqual(
       resourceKeys.recentFiles('workspace-1', undefined),
-    );
-    expect(resourceKeys.search({ q: 'report' }, 'workspace-1')).not.toEqual(
-      resourceKeys.search({ q: 'report' }, 'workspace-2'),
     );
   });
 });

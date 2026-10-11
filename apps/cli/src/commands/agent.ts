@@ -69,7 +69,16 @@ export function registerAgentCommand(program: Command) {
     .action(async (options: { json?: string | boolean; keyword?: string; limit?: string }) => {
       const client = await getTrpcClient();
 
-      const input: { keyword?: string; limit?: number; offset?: number } = {};
+      // The inbox (Lobe AI) is a real assistant the user can open, and this is
+      // exactly where they look for it — so opt in. `queryAgents` omits the
+      // product-owned inbox for callers that do not explicitly ask for it, so
+      // that older clients and CRUD/group surfaces keep their old behavior.
+      const input: {
+        includeInbox: boolean;
+        keyword?: string;
+        limit?: number;
+        offset?: number;
+      } = { includeInbox: true };
       if (options.keyword) input.keyword = options.keyword;
       if (options.limit) input.limit = Number.parseInt(options.limit, 10);
 
@@ -87,14 +96,19 @@ export function registerAgentCommand(program: Command) {
         return;
       }
 
+      // `name` (user-facing display name) and `title` (role/identity) are separate
+      // fields and both are returned — collapsing them into one column hides the
+      // only handle the user knows an agent by, e.g. the inbox shows up as
+      // `Sienna` / `Lobe`. `model` is not part of the queryAgents payload, so the
+      // column that used to sit here was always empty.
       const rows = items.map((a: any) => [
         a.id || a.agentId || '',
-        truncate(a.title || a.name || a.meta?.title || 'Untitled', 40),
+        truncate(a.name || a.meta?.name || '', 24),
+        truncate(a.title || a.meta?.title || '', 36),
         truncate(a.description || a.meta?.description || '', 50),
-        a.model || '',
       ]);
 
-      printTable(rows, ['ID', 'TITLE', 'DESCRIPTION', 'MODEL']);
+      printTable(rows, ['ID', 'NAME', 'TITLE', 'DESCRIPTION']);
     });
 
   // ── view ──────────────────────────────────────────────
@@ -126,8 +140,15 @@ export function registerAgentCommand(program: Command) {
         }
 
         const r = result as any;
-        console.log(pc.bold(r.title || r.meta?.title || 'Untitled'));
+        // Same rule as the web UI (`agentDisplayName`): the personal `name` is the
+        // primary label and a real (non-blank) title is the supporting line — so
+        // the inbox reads `Sienna · Lobe`, while a named agent without a title
+        // reads `Alice`, not `Alice · Untitled`.
+        const name = (r.name || r.meta?.name)?.trim();
+        const title = (r.title || r.meta?.title)?.trim();
+        console.log(pc.bold(name || title || 'Untitled'));
         const meta: string[] = [];
+        if (name && title && title !== name) meta.push(title);
         if (r.description || r.meta?.description) meta.push(r.description || r.meta.description);
         if (r.model) meta.push(`Model: ${r.model}`);
         if (r.provider) meta.push(`Provider: ${r.provider}`);
@@ -363,6 +384,7 @@ export function registerAgentCommand(program: Command) {
       "Disable headless mode: tool calls that need approval park the run for a human (default: headless — tools auto-run, matching the CLI's non-interactive nature). The CLI does not wait for that approval; it returns with exit code 2 and the run continues once it is answered in LobeHub",
     )
     .option('--json', 'Output full JSON event stream')
+    .option('--detach', 'Start the operation and return its IDs without waiting for events')
     .option('-v, --verbose', 'Show detailed tool call info')
     .option('--replay <file>', 'Replay events from a saved JSON file (offline)')
     .option('--sse', 'Force SSE stream instead of WebSocket gateway')
@@ -385,6 +407,7 @@ Exit codes:
         agentId?: string;
         autoStart?: boolean;
         device?: string;
+        detach?: boolean;
         headless?: boolean;
         json?: boolean;
         prompt?: string;
@@ -481,6 +504,17 @@ Exit codes:
         }
 
         const operationId = r.operationId;
+        if (options.detach) {
+          const started = {
+            autoStarted: r.autoStarted,
+            operationId,
+            status: r.status,
+            topicId: r.topicId,
+          };
+          if (options.json) outputJson(started);
+          else log.info(`Operation: ${pc.dim(operationId)} · Topic: ${pc.dim(r.topicId || 'n/a')}`);
+          return;
+        }
         if (!options.json) {
           log.info(`Operation: ${pc.dim(operationId)} · Topic: ${pc.dim(r.topicId || 'n/a')}`);
         }

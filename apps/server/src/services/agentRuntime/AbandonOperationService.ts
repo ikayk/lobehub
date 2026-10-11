@@ -31,7 +31,7 @@ const log = debug('lobe-server:abandon-operation');
  * when the durable row, the run row or the terminal hook fails here, the run
  * ends with a row still claiming to be `running` and nothing left to report it
  * — a Task that never settles, a Goal that waits on it, and a user looking at a
- * spinner (LOBE-12391). Those failures get a real log line; the ones that only
+ * spinner. Those failures get a real log line; the ones that only
  * cost a retry stay on `debug`.
  */
 const reportSettleFailure = (message: string, context: unknown): void => {
@@ -158,7 +158,8 @@ export class AbandonOperationService {
     const shouldDispatchAbandonedLifecycle =
       state.status === 'running' ||
       state.status === 'waiting_for_human' ||
-      state.status === 'waiting_for_async_tool';
+      state.status === 'waiting_for_async_tool' ||
+      state.status === 'waiting_for_client';
     const message = `${ABANDONED_OPERATION_ERROR_PREFIX} ${reason}`;
     const error: ChatMessageError = {
       body: { message },
@@ -407,7 +408,9 @@ export class AbandonOperationService {
     if (
       !op ||
       (!preClaimed &&
-        !['running', 'waiting_for_human', 'waiting_for_async_tool'].includes(op.status))
+        !['running', 'waiting_for_human', 'waiting_for_async_tool', 'waiting_for_client'].includes(
+          op.status,
+        ))
     ) {
       return;
     }

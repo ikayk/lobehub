@@ -37,7 +37,7 @@ import {
   goalNodes,
   goalNodeWorkVersions,
 } from '../schemas/goalGraph';
-import { tasks } from '../schemas/task';
+import { briefs, tasks } from '../schemas/task';
 import { works, workVersions } from '../schemas/work';
 import type { LobeChatDatabase, Transaction } from '../type';
 import { notTrashed } from '../utils/softDelete';
@@ -77,6 +77,27 @@ interface CreateDecisionInput {
 }
 
 /** Persistence boundary for an owned Goal Graph and its append-only audit trail. */
+/**
+ * A goal gate is asked in two places — the goal itself and the brief that
+ * carries it to the inbox. Whichever answers, the other must stop asking, so
+ * every write that settles a decision settles its brief in the same transaction.
+ */
+const settleDecisionBriefs = async (
+  tx: Transaction,
+  decisionId: string,
+  action: string,
+  comment?: string,
+) =>
+  tx
+    .update(briefs)
+    .set({ resolvedAction: action, resolvedAt: new Date(), resolvedComment: comment ?? null })
+    .where(
+      and(
+        isNull(briefs.resolvedAt),
+        sql`${briefs.metadata} -> 'goal' ->> 'decisionId' = ${decisionId}`,
+      ),
+    );
+
 export class GoalGraphModel {
   /**
    * `actor` is who the audit trail records for the transitions made through this
@@ -288,6 +309,27 @@ export class GoalGraphModel {
       eventType,
       goalId,
       reason: reason ?? `status ${from} → ${to}`,
+    });
+  };
+
+  /**
+   * Record a change to the goal row itself that is not a status move, such as
+   * binding it to a topic, so the goal's timeline says when and by whom
+   * its carrier changed.
+   */
+  recordGoalUpdate = async (
+    goalId: string,
+    input: { operationId?: string; reason: string },
+  ): Promise<void> => {
+    await this.db.insert(goalEvents).values({
+      actorId: this.actor?.id ?? this.userId,
+      actorType: this.actor?.type ?? 'user',
+      entityId: goalId,
+      entityType: 'goal',
+      eventType: 'updated',
+      goalId,
+      operationId: input.operationId,
+      reason: input.reason,
     });
   };
 
@@ -702,6 +744,13 @@ export class GoalGraphModel {
           and(
             eq(goalNodes.goalId, goalId),
             eq(goalNodes.id, nodeId),
+            // A write that does not change the status is a no-op: rewriting the
+            // same status would bump `updatedAt` and append a duplicate event
+            // for nothing. A coordinator retry loop re-activating an
+            // already-active node on every tick would then churn the graph
+            // until no in-flight planning turn could submit a plan (the
+            // manager's snapshot hash reads these rows).
+            ne(goalNodes.status, status),
             // Retirement is a person's final word on a node. A coordinator tick
             // that loaded the node before it was retired must not write it back
             // to `resolved` / `active` afterwards; the goal row lock taken above
@@ -804,6 +853,7 @@ export class GoalGraphModel {
         eventType: 'resolved',
         reason: resolution,
       });
+      await settleDecisionBriefs(tx, decision.id, optionId, resolution);
       return decision;
     });
 
@@ -847,6 +897,7 @@ export class GoalGraphModel {
         eventType: 'retired',
         reason,
       });
+      await settleDecisionBriefs(tx, decision.id, 'canceled', reason);
       return decision;
     });
 }

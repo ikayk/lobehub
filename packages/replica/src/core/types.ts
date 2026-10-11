@@ -15,11 +15,27 @@ export interface ReplicaRow<T> {
 
 /**
  * Where a replica keeps its rows between sessions (IndexedDB, localStorage …).
- * Best-effort by contract: the server stays the durable source of truth, so
- * an implementation should swallow its own I/O failures.
+ * Reads and writes are best-effort: the server stays the durable source of
+ * truth, so `get` and `set` should swallow their own I/O failures (a failed
+ * read is a cache miss, a failed write is retried by the next one).
  */
 export interface ReplicaStorage<T> {
   get: (key: ReplicaRowKey) => Promise<ReplicaRow<T> | undefined>;
+  /**
+   * Strict read for destructive passes: like `get`, but **rejects** when the
+   * row could not be read (I/O error, unparsable value) instead of reporting a
+   * miss. The engine reads its per-scope index through it before `remove` /
+   * `clear`, so an unreadable index fails the purge rather than passing for an
+   * empty one. Optional: without it `get` is used, which is only correct for a
+   * storage whose `get` already rejects on failure.
+   */
+  getStrict?: (key: ReplicaRowKey) => Promise<ReplicaRow<T> | undefined>;
+  /**
+   * Delete a row. Must **reject** when the delete did not land (a closed
+   * IndexedDB, a quota or security error): the engine keeps the row indexed
+   * and the removal unpurged, so the next `remove` / `clear` retries it instead
+   * of letting a row the user deleted hydrate again. A missing row is a success.
+   */
   remove: (key: ReplicaRowKey) => Promise<void>;
   set: (key: ReplicaRowKey, row: ReplicaRow<T>) => Promise<void>;
 }
@@ -38,6 +54,14 @@ export type ReplicaSource = 'local' | 'server' | 'storage';
  * while the scope is still an optimistic guess (identity not resolved yet).
  */
 export interface ReplicaScope {
+  /**
+   * Whether this runtime may read the persisted projection back into memory.
+   * Defaults to `true`. A surface that never resolves an identity (e.g. a
+   * public embed that does not mount the user store) opts out: its scope is
+   * only the last-known guess, so hydrating it could paint a different — or a
+   * since-invalidated — session's private rows before authorization is checked.
+   */
+  canHydrate?: () => boolean;
   canPersist: () => boolean;
   get: () => string;
   use: () => string;
@@ -70,17 +94,19 @@ export interface ReplicaState<T> {
   scope?: string;
 }
 
-export interface ReplicaResource<TParams, TData, TFetched = TData> {
+export interface ReplicaResource<TParams, TData, TFetched = TData, TCursor = any> {
   /** Paged resources receive the page cursor (`undefined` = head page). */
-  fetcher?: (params: TParams, cursor?: any) => Promise<TFetched>;
+  fetcher?: (params: TParams, cursor?: TCursor) => Promise<TFetched>;
   key: (params: TParams) => string;
   name: string;
   /** Storage namespace — `name` + `version`, so a version bump orphans old rows. */
   namespace: string;
   /** Present on paged resources (`definePagedReplica`). */
-  paging?: ReplicaPagingConfig<any>;
+  paging?: ReplicaPagingConfig<any, TCursor>;
   /** Whether the resource survives a reload (it has a storage). */
   persisted: boolean;
+  /** Whether an entry key may be hydrated and persisted (see `persistKey`). */
+  persistKey: (key: string) => boolean;
   /**
    * Query identity beyond `key` (filters, page size). Persisted rows are
    * stored per query, so a different query never hydrates; in memory a query
@@ -91,5 +117,7 @@ export interface ReplicaResource<TParams, TData, TFetched = TData> {
   storage?: ReplicaStorage<TData>;
   /** Row key in `storage` for these params (`key`, plus `?query` when set). */
   storageKey: (params: TParams) => string;
+  /** Custom query-cache key of the network sync (see `DefineReplicaOptions.syncKey`). */
+  syncKey?: (params: TParams) => readonly unknown[];
   version: number;
 }
