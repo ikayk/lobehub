@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import type { GoalAdvanceEffect, GoalMetricCriteriaState } from '@lobechat/agent-tracing';
 import { buildGoalRequirement } from '@lobechat/builtin-tool-goal';
 import {
@@ -6,7 +8,6 @@ import {
   GOAL_BATCH_BREAK_OPTION,
   GOAL_BATCH_BREAK_QUESTION_TAIL,
   GOAL_BATCH_TEMPLATE_TITLE,
-  GOAL_BATCH_TITLE,
   GOAL_CLARIFICATION_OPTION,
   GOAL_CLARIFICATION_TITLE,
   GOAL_COORDINATOR_ACTOR_ID,
@@ -33,6 +34,7 @@ import type {
   GoalNodeKind,
   GoalNodeStatus,
   GoalPauseReason,
+  GoalRolloutPolicy,
   GoalRolloutState,
   GoalStatus,
   GoalTickResult,
@@ -49,6 +51,7 @@ import { sql } from 'drizzle-orm';
 
 import { AgentModel } from '@/database/models/agent';
 import { AgentOperationModel } from '@/database/models/agentOperation';
+import { type ExpertiseCarrier, ExpertiseModel } from '@/database/models/expertise';
 import { GoalModel } from '@/database/models/goal';
 import { GoalGraphModel } from '@/database/models/goalGraph';
 import { MetricModel } from '@/database/models/metric';
@@ -67,6 +70,7 @@ import { TaskService } from '../task';
 import { TaskRunnerService } from '../taskRunner';
 import { AcceptanceService } from '../verify/acceptanceService';
 import { VerifyPlanGeneratorService } from '../verify/planGenerator';
+import { BatchPlanSkillService, learnedRulesClause, planSkillIdentifier } from './batchPlanSkill';
 import { GoalCriteriaGeneratorService, type GoalDecompositionDraft } from './criteriaGenerator';
 import {
   compareMetric,
@@ -103,6 +107,13 @@ import {
 import { isGoalReportNode, withoutGoalReport } from './report';
 import { GoalReportService } from './reportService';
 import { GoalReportStore } from './reportStore';
+import {
+  carriedUnitBrief,
+  createRecipeUnitTask,
+  materializeRolloutBatch,
+  MAX_ROLLOUT_ROSTER,
+  normalizeRolloutRoster,
+} from './rolloutBatch';
 import { evaluateRolloutGate, type RolloutGateResult, withGateVerdict } from './rolloutGate';
 import { scheduleGoalAdvance } from './scheduler';
 import { evaluateHomogeneity } from './spec';
@@ -145,83 +156,51 @@ const GOAL_ENDED_STATUSES = new Set<string>(['achieved', 'canceled']);
 const GOAL_DISPATCH_LOCK_NAMESPACE = 0x67_6f_64_69;
 /** Why a decomposition did or did not become a batch: DEBUG=lobe-server:goal-rollout. */
 const log = debug('lobe-server:goal-rollout');
-/** Upper bound on a batch roster; a planner that over-lists cannot swamp the config. */
-const MAX_ROLLOUT_ROSTER = 60;
-/**
- * The roster the coordinator promotes from, probes first. The probe titles come
- * from the tasks actually created; the rest come from the planner's `units`,
- * de-duplicated. A planner that omitted `units` degrades to probes-only, which
- * delivers the class without a mass phase rather than inventing units.
- *
- * `limit` bounds the roster a *batch* carries (its config safety valve); the
- * ordinary fallback passes no limit, because trimming there would silently drop
- * units the goal promised to deliver.
- */
-const normalizeRolloutRoster = (
-  units: string[] | undefined,
-  probeDrafts: GoalDecompositionDraft['tasks'],
-  canarySize: number,
-  limit: number = MAX_ROLLOUT_ROSTER,
-): string[] => {
-  const probeTitles = probeDrafts.slice(0, canarySize).map((draft) => draft.title);
-  const seen = new Set(probeTitles);
-  const rest: string[] = [];
-  for (const unit of units ?? []) {
-    const title = unit.trim();
-    if (!title || seen.has(title)) continue;
-    seen.add(title);
-    rest.push(title);
-    if (probeTitles.length + rest.length >= limit) break;
-  }
-  return [...probeTitles, ...rest];
-};
-
-/** Heads the brief a unit carries over from its first run when it is re-opened. */
-const UNIT_BRIEF_HEADING = 'Unit brief (from its first run):';
 
 /**
- * The per-unit brief a re-opened unit must keep: the first-hand probe brief
- * (which may be the only place its variant assignment is stated), or the one a
- * previous re-open already carried over. A unit briefed only from the shared
- * recipe has none of its own.
+ * Why the system planner's one pass should go to the main Agent, or undefined
+ * when its plan can run: the pass failed, the planner said it was not enough,
+ * or it claimed a batch it could not lay out. A goal that is simply not a batch
+ * is not a reason — the ordinary plan is right for it.
  */
-const carriedUnitBrief = (node: { description?: string | null; title: string }) => {
-  const description = node.description?.trim();
-  if (!description) return undefined;
-  const carried = description.indexOf(UNIT_BRIEF_HEADING);
-  if (carried >= 0) return description.slice(carried + UNIT_BRIEF_HEADING.length).trim();
-  return description.endsWith(`Unit: ${node.title}`) ? undefined : description;
+const planningHandoffReason = (
+  plan: GoalDecompositionDraft | undefined,
+  plannerFailure: string | undefined,
+  rollout: GoalRolloutPolicy | undefined,
+  maxUnits: number,
+): string | undefined => {
+  if (!plan) return `Planner failed (${plannerFailure ?? 'no answer'})`;
+  const asked = plan.escalate?.trim();
+  if (asked) return `Planner asked for the main Agent: ${asked}`;
+  if (!plan.rollout || rollout?.trigger === 'off') return undefined;
+  const verdict = evaluateHomogeneity(
+    plan.rollout,
+    plan.tasks.map((draft) => ({ instruction: draft.instruction, title: draft.title })),
+    { maxUnits, minUnits: rollout?.minHomogeneousUnits },
+  );
+  return verdict.malformed
+    ? `Batch claim could not be laid out (${verdict.reasons.join('; ')})`
+    : undefined;
 };
 
 /**
- * Materialize one roster unit as a Task inside a batch. The brief is the shared
- * recipe applied to this unit — the probes carry the full first-hand brief, the
- * units promoted later reuse what the Template already proved. A re-opened unit
- * also keeps its own first-hand brief.
+ * One line for why the planner failed, for the audit trail. Model runtime
+ * errors arrive as plain objects (`{ errorType, error }`), not `Error`s.
  */
-const createRecipeUnitTask = async (
-  writer: GoalGraphModel,
-  goalId: string,
-  batchNodeId: string,
-  title: string,
-  recipeOutline?: string,
-  unitBrief?: string,
-): Promise<string | undefined> => {
-  const node = await writer.createNode(goalId, {
-    description: [
-      recipeOutline,
-      `Unit: ${title}`,
-      unitBrief && `${UNIT_BRIEF_HEADING}\n${unitBrief}`,
-    ]
-      .filter(Boolean)
-      .join('\n\n'),
-    kind: 'task',
-    scopeId: batchNodeId,
-    title,
+const describePlannerFailure = (error: unknown): string => {
+  const runtime = error as { error?: { message?: string }; errorType?: string } | undefined;
+  const text =
+    error instanceof Error
+      ? error.message
+      : [runtime?.errorType, runtime?.error?.message].filter(Boolean).join(': ') || String(error);
+  return text.length > 300 ? `${text.slice(0, 299)}…` : text;
+};
+
+const draftNotStarted = (goalId: string) =>
+  new TRPCError({
+    code: 'CONFLICT',
+    message: `Goal is a draft; start it with lh goal start ${goalId}`,
   });
-  return node?.id;
-};
-
 /** Who does the goal's Tasks: its dedicated executor, else the goal agent itself. */
 export const goalTaskAgentId = (goal: Pick<GoalItem, 'agentId' | 'config'>) =>
   goal.config?.taskAgentId ?? goal.agentId ?? undefined;
@@ -253,6 +232,11 @@ export interface CreateGoalGraphInput {
    * prose — that text remains what every Task's execution context reads.
    */
   criteria?: Array<{ description?: string; instruction?: string; title: string }>;
+  /**
+   * Create the goal as a `draft`: the graph can be arranged, and nothing is
+   * dispatched until `GoalStartService.start` launches it.
+   */
+  draft?: boolean;
   maxRounds?: number;
   maxTotalCost?: number;
   /**
@@ -415,6 +399,10 @@ export class GoalService {
       'Only a run in a topic with an agent can create a goal it supervises',
     );
 
+    // A conversation goal opens as a draft when the caller asks for one: its
+    // agent arranges the graph in this run, and the goal runs only once someone
+    // starts it. Opt-in, because a CLI released before `lh goal start` existed
+    // could never start the draft it created.
     const created = await this.create({
       ...input,
       agentId,
@@ -672,6 +660,7 @@ export class GoalService {
       maxTotalCost: input.maxTotalCost,
       projectId: input.projectId,
       requirement,
+      ...(input.draft ? { status: 'draft' as const } : {}),
       ...(input.topicId
         ? { subjectId: input.topicId, subjectType: 'topic' as const }
         : { subjectType: 'standalone' as const }),
@@ -1315,6 +1304,8 @@ export class GoalService {
 
   pause = async (goalId: string) => {
     const graph = await this.requireGraph(goalId);
+    // A draft never ran; pausing it would let a later resume skip `start`.
+    if (graph.goal.status === 'draft') throw draftNotStarted(goalId);
     // From here the pause is the person's, so no later measurement lifts it.
     // Written even when the goal is already paused — that transition is a
     // no-op, so this marker is the only record that the person took it over.
@@ -1950,6 +1941,9 @@ export class GoalService {
       const model = new GoalModel(tx, this.userId, this.workspaceId);
       const current = await model.lockById(goalId);
       if (!current) throw new TRPCError({ code: 'NOT_FOUND', message: 'Goal not found' });
+      // Only `start` launches a draft: it settles the creating run's planning
+      // turn and checks who may launch it, which a plain status flip skips.
+      if (current.status === 'draft') throw draftNotStarted(goalId);
       if (current.status !== graph.goal.status) {
         throw new TRPCError({
           code: 'CONFLICT',
@@ -2386,6 +2380,13 @@ export class GoalService {
     // The coordinator never sees the wrap-up report node: it runs after the
     // Goal-level acceptance and does not take part in the Goal's status.
     const graph = withoutGoalReport(await this.requireGraph(goalId));
+    // A draft is still being arranged; only `start` hands it to the coordinator.
+    if (graph.goal.status === 'draft')
+      return {
+        goalId,
+        message: `Goal is a draft; start it with lh goal start ${goalId}`,
+        outcome: 'no_progress',
+      };
     if (graph.goal.config?.manager) {
       // The system's own planner leads whenever the Goal has one: a main Agent is
       // the fallback for problems that planner cannot express, not a replacement
@@ -2845,9 +2846,18 @@ export class GoalService {
       ]
         .filter(Boolean)
         .join('\n\n');
+      // A batch unit loads the batch's plan skill on every run, and is judged
+      // by every rule the batch's breaks have taught.
+      const rollout = graph.goal.config?.rolloutState;
+      const batchUnit = frontier.kind === 'task' && this.isBatchMember(graph, frontier.id);
+      const planSkill = batchUnit ? rollout?.planSkill : undefined;
+      const learnedRules = batchUnit ? (rollout?.learnings ?? []) : [];
       task = await this.taskService.createTask({
         assigneeAgentId: await this.resolveTaskAssignee(graph.goal),
-        config: { checkpoint: { topic: { after: false } } },
+        config: {
+          checkpoint: { topic: { after: false } },
+          ...(planSkill ? { skills: [planSkillIdentifier(planSkill)] } : {}),
+        },
         description: description?.slice(0, TASK_DESCRIPTION_MAX_LENGTH),
         instruction: this.buildTaskInstruction(graph, frontier.title, description),
         name: frontier.title,
@@ -2866,11 +2876,16 @@ export class GoalService {
           enabled: true,
           ...(goalCriteriaIds?.length ? { verifyCriteriaIds: goalCriteriaIds } : {}),
         },
-        requirement: this.buildTaskAcceptanceRequirement(
-          graph,
-          frontier.title,
-          frontier.description,
-        ),
+        // A batch unit is judged on its own delivery and, on top of it, on every
+        // rule the batch's breaks taught. Configured criteria would replace the
+        // prose contract (the verify plan materializes only them), so the
+        // rules join the requirement instead of standing in for it.
+        requirement: [
+          this.buildTaskAcceptanceRequirement(graph, frontier.title, frontier.description),
+          learnedRulesClause(learnedRules),
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
       });
       acceptanceId = acceptance.id;
       const bound = await this.coordinatorGraph.bindTask(goalId, frontier.id, task.id);
@@ -3699,9 +3714,19 @@ export class GoalService {
 
       const generator = new GoalCriteriaGeneratorService(this.db, this.userId, this.workspaceId);
       const clarifications = collectClarificationAnswers(graph);
+      // A failed plan still starts the goal from the raw requirement, but says
+      // so: the server log and the first task's audit event carry the cause.
+      let plannerFailure: string | undefined;
       const plan = await generator
         .decompose({ clarifications, requirement })
-        .catch(() => undefined);
+        .catch((error: unknown) => {
+          plannerFailure = describePlannerFailure(error);
+          console.error(
+            `[GoalService] goal ${goalId} decomposition failed; starting from the raw requirement:`,
+            error,
+          );
+          return undefined;
+        });
       // A graph without a problem node has nowhere to hang a question, so its
       // questions are planned around as assumptions like a re-plan's would be.
       const understanding = plan
@@ -3711,6 +3736,27 @@ export class GoalService {
             clarifications.map((item) => item.question),
           )
         : undefined;
+
+      // The system planner does one simple pass. When that pass failed, said it
+      // was not enough, or claimed a batch it could not lay out, the main Agent
+      // — which can inspect the workspace — plans the goal instead. Without one
+      // (no goal agent, or no turn could start) the pass below still runs.
+      const handoff = planningHandoffReason(
+        plan,
+        plannerFailure,
+        graph.goal.config?.rollout,
+        MAX_ROLLOUT_ROSTER,
+      );
+      if (handoff && graph.goal.agentId) {
+        const handed = await this.handPlanningToMainAgent(graph, handoff);
+        if (handed) {
+          effects.push({
+            detail: `planning handed to the main Agent: ${handoff}`,
+            type: 'goal_status',
+          });
+          return handed;
+        }
+      }
 
       const draftTasks: GoalDecompositionDraft['tasks'] = plan?.tasks ?? [
         {
@@ -3832,7 +3878,7 @@ export class GoalService {
                   minUnits: existingRollout?.minHomogeneousUnits,
                 },
               )
-            : { batch: false, reasons: [] as string[] };
+            : { batch: false, malformed: false, reasons: [] as string[] };
 
         log(
           'decomposition rollout: trigger=%s claim=%o tasks=%d verdict=%o',
@@ -3843,7 +3889,13 @@ export class GoalService {
         );
 
         if (rolloutClaim && rolloutEnabled && verdict.batch && currentProblem) {
-          const roster = normalizeRolloutRoster(rolloutClaim.units, draftTasks, draftTasks.length);
+          const roster = normalizeRolloutRoster(
+            rolloutClaim.units,
+            draftTasks,
+            draftTasks.length,
+            undefined,
+            { matchUnitInProbeTitle: true },
+          );
           const canarySize =
             rolloutTrigger === 'full'
               ? roster.length
@@ -3855,117 +3907,33 @@ export class GoalService {
                     draftTasks.length,
                   ),
                 );
-
-          const batch = await writer.createNode(goalId, {
-            description: rolloutClaim.recipeOutline,
-            kind: 'batch',
-            title: GOAL_BATCH_TITLE,
-          });
-          if (!batch) throw new Error('Failed to create a planned batch');
-          await writer.createEdge(goalId, currentProblem.id, batch.id, 'decomposes');
-
-          const template = await writer.createNode(goalId, {
-            description: rolloutClaim.recipeOutline,
-            kind: 'finding',
-            scopeId: batch.id,
-            title: GOAL_BATCH_TEMPLATE_TITLE,
-          });
-          if (!template) throw new Error('Failed to create a batch template');
-
-          // The Assay is the gate. It is a `decision` node so a failed gate has
-          // somewhere to hang the human question, but it carries NO pending
-          // decision yet — opening one now would park the goal before a probe ran.
-          // A `full` roll-out skips the probe, so it opens no gate at all.
-          const assay =
-            rolloutTrigger === 'full'
-              ? undefined
-              : await writer.createNode(goalId, {
-                  description:
-                    'Whether this repeated batch can be delivered without further human decisions.',
-                  kind: 'decision',
-                  scopeId: batch.id,
-                  status: 'proposed',
-                  title: GOAL_BATCH_ASSAY_TITLE,
-                });
-          if (rolloutTrigger !== 'full' && !assay)
-            throw new Error('Failed to create a batch assay');
-
-          const probeDrafts = draftTasks.slice(0, canarySize);
-          const probeIds: string[] = [];
-          for (const draft of probeDrafts) {
-            const node = await writer.createNode(goalId, {
-              description: draft.instruction,
-              kind: 'task',
-              scopeId: batch.id,
-              title: draft.title,
-            });
-            if (!node) throw new Error('Failed to create a probe task');
-            probeIds.push(node.id);
-            committedEffects.push({ nodeId: node.id, type: 'created_node', detail: draft.title });
-          }
-
-          // The gate depends on every probe: `selectFrontier` reads `depends_on`
-          // as blocks, so the gate cannot be evaluated until they settle.
-          if (assay) {
-            for (const probeId of probeIds) {
-              await writer.createEdge(goalId, assay.id, probeId, 'depends_on');
-            }
-          }
-          // Honour the planner's own intra-probe dependencies too.
-          for (const [index, draft] of probeDrafts.entries()) {
-            for (const dep of new Set(draft.dependsOn ?? [])) {
-              if (dep < index && probeIds[dep]) {
-                await writer.createEdge(goalId, probeIds[index], probeIds[dep], 'depends_on');
-              }
-            }
-          }
-
-          // A `full` roll-out releases the rest of the roster immediately, as the
-          // single wave the trigger promises; `canary` waits for the gate.
-          const massNodeIds: string[] = [];
-          if (rolloutTrigger === 'full') {
-            for (const title of roster.slice(probeIds.length)) {
-              const nodeId = await createRecipeUnitTask(
-                writer,
-                goalId,
-                batch.id,
-                title,
-                rolloutClaim.recipeOutline,
-              );
-              if (nodeId) massNodeIds.push(nodeId);
-            }
-          }
-
-          const rolloutState: GoalRolloutState = {
-            batchNodeId: batch.id,
-            assayNodeId: assay?.id,
-            massNodeIds: massNodeIds.length ? massNodeIds : undefined,
-            phase: rolloutTrigger === 'full' ? 'mass' : 'probe',
-            probeNodeIds: probeIds,
-            releasedCount: probeIds.length + massNodeIds.length,
-            templateNodeId: template.id,
-            templateRevision: 1,
-            unitTitles: roster,
-            waveIndex: rolloutTrigger === 'full' ? 1 : 0,
-          };
-          await goalModel.updateRolloutState(goalId, rolloutState);
-
-          // Always persist what the planner derived — later waves brief their
-          // tasks from the recipe and the gate checks its variant axes — while
-          // keeping whatever the caller chose (trigger, sizes) on top.
-          await goalModel.updateRolloutPolicy(goalId, {
-            ...existingRollout,
-            canarySize:
-              rolloutTrigger === 'full' ? undefined : (existingRollout?.canarySize ?? canarySize),
-            spec: {
-              recipeOutline: rolloutClaim.recipeOutline,
-              repeatable: rolloutClaim.repeatable,
-              variantAxes: rolloutClaim.variants,
+          const { probeDrafts, probeIds } = await materializeRolloutBatch({
+            canarySize,
+            goalId,
+            goalModel,
+            planSkillOwner: {
+              db: tx,
+              goalTitle: graph.goal.title,
+              userId: this.userId,
+              workspaceId: this.workspaceId,
             },
-            trigger: rolloutTrigger,
-            units: roster,
-            waveSize: existingRollout?.waveSize ?? ROLLOUT_WAVE_SIZE_DEFAULT,
+            policy: existingRollout,
+            problemId: currentProblem.id,
+            probes: draftTasks,
+            recipeOutline: rolloutClaim.recipeOutline,
+            repeatable: rolloutClaim.repeatable,
+            roster,
+            trigger: rolloutTrigger === 'full' ? 'full' : 'canary',
+            variants: rolloutClaim.variants,
+            writer,
           });
+          for (const [index, draft] of probeDrafts.entries()) {
+            committedEffects.push({
+              nodeId: probeIds[index],
+              type: 'created_node',
+              detail: draft.title,
+            });
+          }
           return committedEffects;
         }
 
@@ -3984,6 +3952,7 @@ export class GoalService {
               draftTasks,
               draftTasks.length,
               Number.POSITIVE_INFINITY,
+              { matchUnitInProbeTitle: true },
             ).map((title, index) => {
               const draft = draftTasks[index];
               return {
@@ -3996,6 +3965,19 @@ export class GoalService {
               };
             })
           : draftTasks;
+
+        // Why this goal was planned unit by unit, on the first task's `created`
+        // event: a planner failure, or a batch claim the checks refused.
+        // A hand-over that did not happen (no main Agent could take the goal)
+        // says so too.
+        const unhanded = handoff ? '; no main Agent could take the goal' : '';
+        let fallbackReason = !plan
+          ? `Planner failed (${plannerFailure ?? 'no answer'})${unhanded}; started from the raw requirement`
+          : plan.escalate?.trim()
+            ? `Planner asked for the main Agent (${plan.escalate.trim()})${unhanded}; ran its own plan`
+            : rolloutClaim && rolloutEnabled && !verdict.batch
+              ? `Batch claim refused (${verdict.reasons.join('; ')}); planned unit by unit`
+              : undefined;
 
         const createdIds: string[] = [];
         for (const draft of plannedUnits) {
@@ -4020,6 +4002,7 @@ export class GoalService {
             scopeId: experiment?.id,
             description: draft.instruction,
             kind: 'task',
+            reason: fallbackReason,
             title: draft.title,
           });
           if (!node) throw new Error('Failed to create a planned task');
@@ -4027,6 +4010,7 @@ export class GoalService {
             await writer.createEdge(goalId, currentProblem.id, node.id, 'decomposes');
           createdIds.push(node.id);
           committedEffects.push({ nodeId: node.id, type: 'created_node', detail: draft.title });
+          fallbackReason = undefined;
         }
 
         // The planner's `dependsOn` indices become `depends_on` edges, drawn
@@ -4077,6 +4061,28 @@ export class GoalService {
     } finally {
       await this.goalModel.releasePlanning(goalId, claim.token);
     }
+  };
+
+  /**
+   * Give the goal's planning to its main Agent, opening one for a goal that had
+   * none. Returns undefined when no turn could start (no eligible agent, turn or
+   * budget limits); a policy opened here is then removed again — only that one,
+   * by its token — so the goal keeps the system planner and does not gain an
+   * uninvited planner later, while a policy a person set meanwhile stays.
+   */
+  private handPlanningToMainAgent = async (graph: GoalGraphSnapshot, reason: string) => {
+    const goalId = graph.goal.id;
+    const token = randomUUID();
+    await this.goalModel.openManagerPolicy(goalId, { openedForHandoff: token });
+    const result = await new GoalManagerService(this.db, this.userId, this.workspaceId)
+      .planInstead(await this.requireGraph(goalId), reason)
+      .catch((error: unknown) => {
+        console.error(`[GoalService] goal ${goalId} could not hand planning over:`, error);
+        return null;
+      });
+    if (result) return result;
+    await this.goalModel.closeHandoffManagerPolicy(goalId, token);
+    return undefined;
   };
 
   /**
@@ -4154,7 +4160,8 @@ export class GoalService {
           goalId,
           state.batchNodeId,
           title,
-          policy.spec?.recipeOutline,
+          { outline: policy.spec?.recipeOutline, skill: state.planSkill },
+          policy.unitBriefs?.[title],
         );
         if (nodeId) {
           newIds.push(nodeId);
@@ -4392,6 +4399,16 @@ export class GoalService {
     // goal row's lock, so a failure part-way leaves the question open to answer
     // again rather than consumed beside half a round; and a second answer
     // racing this one finds the break already restarted.
+    // What a break teaches is mounted on the agent that runs the batch's units
+    // (a run's expertise snapshot reads the executing agent's domains, not the
+    // project's) — resolved like the task assignee, so a deleted executor falls
+    // back to the goal agent rather than a binding that cannot be written. Read
+    // before the transaction, which holds the goal row.
+    const carrierAgentId = await this.resolveTaskAssignee(graph.goal);
+    const carrier: ExpertiseCarrier = carrierAgentId
+      ? { id: carrierAgentId, type: 'agent' }
+      : { type: 'user' };
+
     const committed = await this.db.transaction(async (tx) => {
       const goalModel = new GoalModel(tx, this.userId, this.workspaceId);
       const current = (await goalModel.lockById(goalId))?.config?.rolloutState;
@@ -4418,6 +4435,88 @@ export class GoalService {
       if (template && optionId !== 'new_class' && state.templateNodeId) {
         await writer.createEdge(goalId, template.id, state.templateNodeId, 'revises');
       }
+
+      // The plan skill takes the revision as its next version, and the break
+      // teaches the batch: a rule the executor reads, compiled into a criterion
+      // the verifier judges every later unit by. A fork starts a new class of
+      // units — its correction describes them, it is not a rule for the old
+      // ones. Each runs in its own savepoint: a failure there costs the skill
+      // version or the lesson, never the round the answer opens.
+      const inSavepoint = <T>(label: string, run: (db: typeof tx) => Promise<T>) =>
+        tx.transaction(run).catch((error) => {
+          log('restartRolloutLoop: %s failed: %O', label, error);
+          return undefined;
+        });
+      let planSkill = state.planSkill;
+      if (planSkill && revisedOutline) {
+        const skill = planSkill;
+        const version = await inSavepoint('plan skill revision', (db) =>
+          new BatchPlanSkillService(db, this.userId, this.workspaceId).revise(skill, {
+            goalId,
+            guidance: correction || undefined,
+            plan: revisedOutline,
+            revision,
+          }),
+        );
+        // The revision did not land (the skill was deleted, or the write
+        // failed): units must not load a skill that lacks it. They fall back to
+        // copying the revised plan, and the batch drops the stale reference.
+        if (version === undefined) planSkill = undefined;
+      } else if (!planSkill && revisedOutline) {
+        // A batch from before plans were skills moves into one now, carrying
+        // every earlier version of its plan.
+        const inBatch = new Set(
+          graph.edges
+            .filter((edge) => edge.kind === 'contains' && edge.sourceNodeId === batchId)
+            .map((edge) => edge.targetNodeId),
+        );
+        const earlier = graph.nodes
+          .filter(
+            (node) =>
+              node.kind === 'finding' &&
+              node.title === GOAL_BATCH_TEMPLATE_TITLE &&
+              inBatch.has(node.id),
+          )
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+          .map((node) => node.description?.trim() ?? '');
+        planSkill = await inSavepoint('plan skill adoption', (db) =>
+          new BatchPlanSkillService(db, this.userId, this.workspaceId).adopt({
+            batchNodeId: batchId,
+            goalId,
+            goalTitle: graph.goal.title,
+            versions: [...earlier, revisedOutline],
+          }),
+        );
+      }
+      // A fork starts a new class: the old class's rules must stop reaching
+      // runs too, not only its acceptance — retire them in the shared domain,
+      // where the executor's expertise would otherwise keep injecting them.
+      // Not in a forgiving savepoint: the fork clears the batch's record of
+      // them below, so a failure here fails the fork (the question stays open
+      // to answer again) rather than leaving them active and forgotten.
+      if (optionId === 'new_class' && state.learnings?.length) {
+        const expertise = new ExpertiseModel(tx, this.userId, this.workspaceId);
+        for (const learning of state.learnings) await expertise.retireLesson(learning.lessonId);
+      }
+      const learned =
+        correction && optionId !== 'new_class'
+          ? await inSavepoint('break learning', (db) =>
+              new BatchPlanSkillService(db, this.userId, this.workspaceId).learn({
+                carrier,
+                domainId: state.learningDomainId,
+                // What the gate found: this round's latest hold, in its own words.
+                found:
+                  state.gateLog?.findLast(
+                    (entry) =>
+                      entry.outcome === 'blocked' && entry.revision === state.templateRevision,
+                  )?.message ?? 'the release gate held',
+                goalTitle: graph.goal.title,
+                guidance: correction,
+                planSkill,
+                revision: state.templateRevision,
+              }),
+            )
+          : undefined;
 
       // 2. Retire the members that broke or were superseded, never delete them —
       // the new round is `derived_from` them (decision #4). A member an earlier
@@ -4499,7 +4598,7 @@ export class GoalService {
           title: unit.title,
         })),
         ...fresh.map((title) => ({
-          brief: undefined as string | undefined,
+          brief: policy.unitBriefs?.[title],
           from: undefined as string | undefined,
           title,
         })),
@@ -4512,7 +4611,7 @@ export class GoalService {
           goalId,
           batchId,
           unit.title,
-          revisedOutline || baseOutline,
+          { outline: revisedOutline || baseOutline, skill: planSkill },
           unit.brief,
         );
         if (!nodeId) continue;
@@ -4546,6 +4645,17 @@ export class GoalService {
         phase: 'probe',
         probeNodeIds: probeIds,
         releasedCount: opened.length,
+        // A fork starts a new class of units: the old class's rules do not
+        // bind it, so its learnings start empty.
+        learningDomainId:
+          optionId === 'new_class' ? undefined : (learned?.domainId ?? state.learningDomainId),
+        learnings:
+          optionId === 'new_class'
+            ? undefined
+            : learned
+              ? [...(state.learnings ?? []), learned.learning]
+              : state.learnings,
+        planSkill,
         templateNodeId: template?.id ?? state.templateNodeId,
         templateRevision: state.templateRevision + 1,
         unitTitles: remaining,

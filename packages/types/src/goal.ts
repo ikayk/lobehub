@@ -16,7 +16,15 @@ import type { WorkType } from './work';
  * there), mirroring the AcceptanceStatus convention.
  */
 export type GoalStatus =
-  'planning' | 'running' | 'verifying' | 'review' | 'paused' | 'achieved' | 'failed' | 'canceled';
+  | 'draft'
+  | 'planning'
+  | 'running'
+  | 'verifying'
+  | 'review'
+  | 'paused'
+  | 'achieved'
+  | 'failed'
+  | 'canceled';
 
 /**
  * The execution carrier a goal is optionally bound to. Goals are standalone
@@ -228,6 +236,12 @@ export const summarizeGoalSupervision = (state?: GoalSupervisionState): GoalSupe
 export interface GoalManagerPolicy {
   instruction?: string;
   maxTurns?: number;
+  /**
+   * Set when the coordinator opened this policy to hand its planning over; the
+   * token lets a hand-over that could not start remove its own policy and
+   * nothing a person set meanwhile.
+   */
+  openedForHandoff?: string;
 }
 
 /** Bounded wait on time or one correlated external result. */
@@ -328,6 +342,12 @@ export interface GoalManagerState {
   reviewSnapshot?: string;
   snapshot: string;
   startedAt: string;
+  /**
+   * `start` settled this turn with the draft's arrangement rather than a plan
+   * the agent submitted, so a later `lh goal plan` on it is refused, not
+   * reported as a duplicate of a plan that was never written.
+   */
+  startedFromDraft?: boolean;
   submitted?: {
     action: 'tasks' | 'verify' | 'retry' | 'escalate' | 'wait';
     /**
@@ -464,6 +484,12 @@ export interface GoalRolloutPolicy {
   };
   trigger: GoalRolloutTrigger;
   /**
+   * Notes for individual roster units, keyed by unit title. A main Agent that
+   * declares the batch can give each unit its own pointers (files, edge cases);
+   * a released unit's brief is the recipe plus its note.
+   */
+  unitBriefs?: Record<string, string>;
+  /**
    * Roster of every homogeneous unit in the goal, probes included and in
    * delivery order. Probes are the first, fully-briefed units; the coordinator
    * materializes the rest from here one wave at a time, so the graph never
@@ -538,6 +564,34 @@ export type GoalRolloutPhase = 'probe' | 'assay' | 'mass' | 'pattern_break' | 'd
  * coordinator's own gate moves, never by a policy edit — the same rule that
  * keeps `managerState` server-owned.
  */
+/**
+ * What one break taught the batch: a rule in the batch's expertise domain,
+ * which every later unit's acceptance adds as a clause it must meet.
+ */
+export interface GoalRolloutLearning {
+  /**
+   * Legacy: a standalone criterion compiled from the rule by an earlier
+   * version. Nothing mounts it — later units' acceptance carries `rule` as a
+   * clause of its requirement instead.
+   */
+  criterionId?: string;
+  lessonCode?: string;
+  lessonId: string;
+  /** The round whose gate broke and taught it. */
+  revision: number;
+  /** The whole correction, as written — `title` is its one-line label. */
+  rule?: string;
+  title: string;
+}
+
+/** The batch's execution plan, kept as a skill in the user's own skill library. */
+export interface GoalRolloutPlanSkill {
+  /** The skill bundle's document id. */
+  id: string;
+  /** The skill's name: units load it as `user-skills:<name>`. */
+  name: string;
+}
+
 export interface GoalRolloutState {
   /** The gate (Assay) decision node, once decomposition created it. */
   assayNodeId?: string;
@@ -548,6 +602,10 @@ export interface GoalRolloutState {
    * round that was judged never loses its latest verdict to later rounds.
    */
   gateLog?: GoalRolloutGateEvaluation[];
+  /** The expertise domain the batch's breaks teach, once one has. */
+  learningDomainId?: string;
+  /** Every rule a break taught, oldest first. */
+  learnings?: GoalRolloutLearning[];
   /**
    * Node ids of the mass tasks the current round released, oldest wave first.
    * A restarted canary starts a new round and clears it.
@@ -555,6 +613,8 @@ export interface GoalRolloutState {
   massNodeIds?: string[];
   /** Phase the rollout is in; the coordinator reads this to pick its move. */
   phase: GoalRolloutPhase;
+  /** The execution plan as a user skill; each Template revision is one of its versions. */
+  planSkill?: GoalRolloutPlanSkill;
   /** Node ids of the probe tasks that must run before the gate passes. */
   probeNodeIds: string[];
   /** How many roster entries have been materialized (probes + released waves). */

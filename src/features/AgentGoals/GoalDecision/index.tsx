@@ -2,9 +2,16 @@
 
 import { GOAL_BATCH_BREAK_OPTION } from '@lobechat/const/goal';
 import type { GoalDecisionOption } from '@lobechat/types';
-import { Center, Flexbox, Icon } from '@lobehub/ui';
-import { Avatar, Text, toast } from '@lobehub/ui/base-ui';
-import { createStaticStyles, cssVar } from 'antd-style';
+import {
+  Avatar,
+  Center,
+  createStaticStyles,
+  cssVar,
+  Flexbox,
+  Icon,
+  Text,
+  toast,
+} from '@lobehub/ui';
 import { MonitorCog } from 'lucide-react';
 import { type ReactNode, useCallback, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -325,10 +332,10 @@ const GoalDecisionCase = ({
   const handleSubmit = useCallback(
     async (answers: ClarificationAnswer[]) => {
       const answer = toGateAnswer(decision, answers);
-      if (!answer) return;
+      if (!answer) return false;
       if (gateAnswerProblem(answer) === 'correctionRequired') {
         toast.error(t('goalProcess.gate.batchCorrectionRequired'));
-        return;
+        return false;
       }
       await onDecide(answer.optionId, answer.resolution?.trim() || undefined);
     },
