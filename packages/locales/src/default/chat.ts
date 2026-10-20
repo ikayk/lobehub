@@ -333,7 +333,7 @@ export default {
     'You are about to delete this category. After deletion, its agents will be moved to the default list. Please confirm your action.',
   'confirmRemoveGroupSuccess': 'Group deleted successfully',
   'confirmRemoveSessionItemAlert':
-    'You are about to delete this agent and its conversations. They will be moved to the trash and can be restored within 30 days.',
+    'You are about to delete this agent and its topics. They will be moved to the trash and can be restored within 30 days.',
   'confirmRemoveSessionSuccess': 'Agent removed successfully',
   'defaultAgent': 'Default Agent',
   'defaultGroupChat': 'Group',
@@ -1768,7 +1768,7 @@ export default {
   'shareModal.popover.loadError': 'Failed to load sharing settings, please try again later',
   'shareModal.popover.privacyWarning.confirm': 'Share & copy link',
   'shareModal.popover.privacyWarning.content':
-    "Anyone with the link can open this whole conversation, so take a moment to make sure there's nothing here you'd rather keep private. A shared topic may include:",
+    "Anyone with the link can open this whole topic, so take a moment to make sure there's nothing here you'd rather keep private. A shared topic may include:",
   'shareModal.popover.privacyWarning.doNotShowAgain': "Don't show this again",
   'shareModal.popover.privacyWarning.items.credentials': 'Credentials',
   'shareModal.popover.privacyWarning.items.files': 'Uploaded files',
@@ -1810,7 +1810,7 @@ export default {
   'sharePage.menu.report': 'Report',
   'sharePage.meta.artifactDescription': 'An artifact shared from {{appName}}.',
   'sharePage.meta.pageDescription': 'A page shared from {{appName}}.',
-  'sharePage.meta.topicDescription': 'A conversation shared from {{appName}}.',
+  'sharePage.meta.topicDescription': 'A topic shared from {{appName}}.',
   'sharePage.pill.edit': 'Edit',
   'sharePage.pill.openInApp': 'Open in {{appName}}',
   'sharePage.pill.sharedVia': 'Shared via {{appName}}',
@@ -2309,8 +2309,8 @@ export default {
     '"{{title}}" will no longer gate this goal’s final acceptance.',
   'goalAcceptance.removeConfirm.title': 'Remove this criterion?',
   'goalAcceptance.title': 'Acceptance standard',
-  'goalChat.newTopic': 'New conversation',
-  'goalChat.noTopics': 'No conversations yet',
+  'goalChat.newTopic': 'New topic',
+  'goalChat.noTopics': 'No topics yet',
   'goalChat.openTopic': 'Go to original topic',
   'goalChat.title': 'Ask about progress',
   'goalChat.welcome':
@@ -2676,6 +2676,7 @@ export default {
   'goalProcess.result.nav.document': 'Final document',
   'goalProcess.result.nav.label': 'Jump to section',
   'goalProcess.result.nav.overview': 'Overview',
+  'goalProcess.result.nav.report': 'Report',
   'goalProcess.result.requirement': 'Original requirement',
   'goalProcess.result.scale.cost': 'Spent {{cost}}',
   'goalProcess.result.scale.criteria': '{{met}}/{{total}} criteria met',
@@ -2711,6 +2712,7 @@ export default {
   'goalProcess.result.unfinished.nextSteps': 'Suggested next steps',
   'goalProcess.result.unfinished.title': 'Not done / next steps',
   'goalProcess.result.unfinished.unmetCriteria': 'Unmet criteria',
+  'goalProcess.result.report.expand': 'View full screen',
   'goalProcess.result.story.chapterMissing':
     'This chapter is no longer in the report — it may have been rewritten.',
   'goalProcess.result.story.detourKind.dead_end': 'Dead end',
@@ -2880,6 +2882,8 @@ export default {
   'goalProcess.start': 'Start',
   'goalPage.allGoals': 'All goals',
   'goalPage.activeGoals': 'Open goals',
+  'goalPage.agentFilter.all': 'All agents',
+  'goalPage.agentFilter.title': 'Filter by agent',
   'goalPage.description':
     'Track what this agent is pursuing and how close each goal is to acceptance.',
   'goalPage.create': 'Create goal',
@@ -2977,8 +2981,6 @@ export default {
     "Couldn't update the archive state. Refresh the task and try again.",
   'taskList.contextMenu.archiveDenied.noEditPermission':
     "You don't have permission to edit tasks in this workspace. Ask a workspace admin for access.",
-  'taskList.contextMenu.archiveDenied.notCreatorOrAdmin':
-    'Only the task creator, a workspace owner, or an admin can archive or restore this task. Ask one of them to do it.',
   'taskList.contextMenu.archiveBlocked':
     'Stop the running task or its schedule/heartbeat before archiving it',
   'taskList.contextMenu.archiveSuccess': 'Task archived',
@@ -3034,17 +3036,17 @@ export default {
   'thread.subagentMetrics.toolsShort_one': '{{count}} tool',
   'thread.subagentMetrics.toolsShort_other': '{{count}} tools',
   'transferMigration.agentBanner.desc':
-    'New conversations are unaffected; older ones light up one by one as they finish. Opening a pending conversation moves it to the front.',
+    'New topics are unaffected; older ones light up one by one as they finish. Opening a pending topic moves it to the front.',
   'transferMigration.agentBadge': 'Migrating history · {{completed}}/{{total}}',
   'transferMigration.agentBadgeCopy': 'Copying history · {{completed}}/{{total}}',
-  'transferMigration.topicPending.title': 'This conversation is migrating',
-  'transferMigration.topicPendingCopy.title': 'This conversation is copying',
+  'transferMigration.topicPending.title': 'This topic is migrating',
+  'transferMigration.topicPendingCopy.title': 'This topic is copying',
   'transferMigration.topicPending.desc':
     'We are prioritizing it — its history will appear here in a few seconds, no action needed.',
   'transferMigration.inputDisabledHint':
-    'You can continue this conversation once its history finishes migrating',
+    'You can continue chatting in this topic once its history finishes migrating',
   'transferMigration.inputDisabledHintCopy':
-    'You can continue this conversation once its history finishes copying',
+    'You can continue chatting in this topic once its history finishes copying',
   'thread.subagentReadOnlyHint':
     'SubAgent conversations are read-only — execution is driven by the parent agent.',
   'terminalPanel.close': 'Close terminal panel',
