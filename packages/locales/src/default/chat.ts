@@ -1,4 +1,9 @@
 export default {
+  'sharePage.app.open': 'Open app',
+  'sharePage.app.help': 'Trouble opening the app?',
+  'sharePage.app.helpDescription':
+    'If this browser prevents opening the app, use its menu to open this page in your system browser. You can also keep reading here.',
+
   'backgroundActivity.alertDesc': '{{name}} is using {{memory}} of memory and {{cpu}} CPU.',
   'backgroundActivity.cpu': 'CPU',
   'backgroundActivity.details': 'View details',
@@ -337,6 +342,9 @@ export default {
     'Are you sure you want to uncompress? This will restore the original messages.',
   'compression.collapsed': 'Compressed {{turns}} earlier turns · View summary',
   'compression.collapsedUnknown': 'Compressed earlier history · View summary',
+  'compression.emptySummary': 'The model returned an empty summary',
+  'compression.failed': 'Context compression failed, original messages kept',
+  'compression.failedReason': 'Summary generation failed: {{reason}}',
   'compression.history': 'Original conversation',
   'compression.summary': 'History summary',
   'confirmClearCurrentMessages':
@@ -965,7 +973,7 @@ export default {
     'The current model is no longer available. Choose another model to continue.',
   'input.viewOnlyAgent': 'You can only view this agent',
   'input.viewOnlyGroup': 'You can only view this group',
-  'input.heteroPlus.tooltip': 'Formatting and scheduling',
+  'input.heteroPlus.tooltip': 'Attachments, formatting and scheduling',
   'input.more': 'More',
   'input.notice.summary_one': '{{count}} input notice',
   'input.notice.summary_other': '{{count}} input notices',
@@ -1098,13 +1106,27 @@ export default {
   'messageForward.successMulti': 'Forwarded to {{count}} agents',
   'messageForward.transcript.header':
     'The following {{count}} messages were forwarded from another conversation. Please use them as context and continue:',
-  'messageForward.topic.handoffFailed':
-    'Transfer did not start because the source continuation could not be cancelled. It may already be running. Refresh the conversation and check its status.',
-  'messageForward.topic.sourceSchedulePaused':
-    'Transfer could not be confirmed. The original scheduled continuation is paused. Check the target conversation before retrying or scheduling again.',
   'messageForward.topic.context': 'Topic context',
   'messageForward.topic.description':
     "The selected Agent will receive this topic's context and continue the work.",
+  'messageForward.topic.handoff.failed': 'Could not hand off this topic. Please try again.',
+  'messageForward.topic.handoff.header':
+    'The following topic was handed off from another conversation. Please use it as context and continue:',
+  'messageForward.topic.handoff.notStarted':
+    'Handoff did not start because the source continuation could not be cancelled. It may already be running. Refresh the conversation and check its status.',
+  'messageForward.topic.handoff.notePlaceholder':
+    'Add a note (optional) — sent along with the topic context',
+  'messageForward.topic.handoff.partialFailed': 'Could not hand off to some Agents',
+  'messageForward.topic.handoff.sourceSchedulePaused':
+    'Handoff could not be confirmed. The original scheduled continuation is paused. Check the target conversation before retrying or scheduling again.',
+  'messageForward.topic.handoff.submit': 'Hand off',
+  'messageForward.topic.handoff.submitCount': 'Hand off ({{count}})',
+  'messageForward.topic.handoff.success': 'Handed off to {{title}}',
+  'messageForward.topic.handoff.successMulti_one': 'Handed off to {{count}} Agent',
+  'messageForward.topic.handoff.successMulti_other': 'Handed off to {{count}} Agents',
+  'messageForward.topic.handoff.title': 'Hand off to another Agent',
+  'messageForward.topic.handoff.unconfirmed':
+    'Handoff could not be confirmed. Check the target conversation before trying again.',
   'messageForward.topic.header':
     'The following topic was forwarded from another conversation. Please use it as context and continue:',
   'messageForward.topic.loadFailed': 'Could not load this topic for forwarding',
@@ -1236,9 +1258,9 @@ export default {
   'cliOverloadedGuide.retryHint':
     'Wait a few seconds and retry. If it keeps failing, the provider may be having a wider incident.',
   'cliOverloadedGuide.title': '{{name}} is temporarily overloaded',
+  'cliRateLimitGuide.actions.handoff': 'Hand off to another Agent',
   'cliRateLimitGuide.actions.openSystemTools': 'Open System Tools',
   'cliRateLimitGuide.actions.retry': 'Retry message',
-  'cliRateLimitGuide.actions.transfer': 'Transfer to another Agent',
   'cliRateLimitGuide.afterReset':
     'This account has reached its current usage limit. You can continue after {{resetAt}}.',
   'cliRateLimitGuide.afterResetWithLimitType':
@@ -1263,7 +1285,6 @@ export default {
   'cliRateLimitGuide.schedule.continueAfter': 'Continue in ~{{duration}}',
   'cliRateLimitGuide.schedule.continueAfterReset': 'Continue after reset',
   'cliRateLimitGuide.schedule.retryNow': 'Retry now',
-  'cliRateLimitGuide.schedule.runNow': 'Run now',
   'cliRateLimitGuide.schedule.scheduledAfterReset':
     'Scheduled. This run will continue automatically once the limit resets.',
   'cliRateLimitGuide.schedule.scheduledForApprox':
@@ -1524,6 +1545,13 @@ export default {
   'platformAgent.deviceGuard.refresh': 'Refresh',
   'platformAgent.deviceGuard.configure': 'Configure',
   'newPage': 'Create Page',
+  'noReply.reason.already_handled': 'Someone else is on it',
+  'noReply.reason.duplicate': 'Already answered',
+  'noReply.reason.not_addressed': 'Not addressed to me',
+  'noReply.reason.nothing_to_add': 'Nothing to add',
+  'noReply.reason.off_topic': 'Not relevant to me',
+  'noReply.reason.stand_down': 'Stepping back from this conversation',
+  'noReply.title': 'Read the message and chose not to reply',
   'noAgentsYet': 'This group has no members yet. Click the + button to invite agents.',
   'noAvailableAgents': 'No members available to invite',
   'noMatchingAgents': 'No matching members found',
@@ -1863,6 +1891,8 @@ export default {
   'signalCallbacks.empty': 'No callback messages',
   'signalCallbacks.expand': 'Show details',
   'signalCallbacks.title': '{{tool}} · {{count}} callback updates',
+  'taskCompletion.title': '{{tool}} "{{description}}" finished',
+  'taskCompletion.titleWithoutDescription': '{{tool}} finished',
   'skillViewer.files': 'Files',
   'skillViewer.foldFiles': 'Hide files',
   'skillViewer.unfoldFiles': 'Show files',
@@ -1875,7 +1905,7 @@ export default {
   'supervisor.todoList.allComplete': 'All tasks completed',
   'supervisor.todoList.title': 'Tasks Completed',
   'tab.groupProfile': 'Group Profile',
-  'tab.integration': 'Channels',
+  'tab.integration': 'IM Bots',
   'tab.profile': 'Agent Profile',
   'tab.profileBasic': 'Profile',
   'tab.search': 'Search',
@@ -2299,6 +2329,12 @@ export default {
   'goalEmpty.title': 'Chase goals without limits',
   'goalList.acceptanceProgress': '{{passed}}/{{total}} passed',
   'goalList.agentRuns': '{{count}} runs',
+  'goalList.contextMenu.copyConfirm': 'Copy',
+  'goalList.contextMenu.copyDescription':
+    'Copies the goal, its budget and acceptance criteria as a new draft. Progress, tasks and the agent are not copied; pick an agent there and start it.',
+  'goalList.contextMenu.copyFailed': 'Failed to copy goal',
+  'goalList.contextMenu.copySuccess': 'Goal copied',
+  'goalList.contextMenu.copyTitle': 'Copy goal',
   'goalList.empty': 'No goals yet',
   'goalList.taskProgress': '{{done}}/{{total}} tasks done',
   'goalList.findings': '{{count}} findings',
@@ -2636,15 +2672,13 @@ export default {
   'goalProcess.decision.effect.releaseBatch':
     'Release the next wave on the current recipe. Each later wave goes to the main Agent, which releases it or brings it back to you.',
   'goalProcess.signOff.islandSubtitle': 'is done and waiting for your sign-off',
-  'goalProcess.signOff.question': 'Do you accept what this goal delivered?',
+  'goalProcess.signOff.islandSummary':
+    'Goal-level acceptance passed. Read the delivery report, then sign off or request changes.',
+  'goalProcess.signOff.openReport': 'View details',
   'goalProcess.signOff.description': 'Goal-level acceptance passed. Your sign-off closes the goal.',
   'goalProcess.signOff.accept': 'Sign off',
   'goalProcess.signOff.acceptEffect': 'Close the goal as delivered.',
   'goalProcess.signOff.requestChanges': 'Request changes',
-  'goalProcess.signOff.requestChangesEffect':
-    'Send it back to the Agent. Say what to change in the notes.',
-  'goalProcess.signOff.notePlaceholder':
-    'What should change? The Agent reworks the delivery with this.',
   'goalProcess.signOff.accepted': 'Signed off',
   'goalProcess.signOff.sentBack': 'Sent back for changes',
   'goalProcess.gate.title.agentQuestion': "Answer the main Agent's question",
@@ -2668,7 +2702,10 @@ export default {
   'goalProcess.graph.exitFullscreen': 'Exit fullscreen',
   'goalProcess.graph.bridgeHops_one': 'via {{count}} step not shown',
   'goalProcess.graph.bridgeHops_other': 'via {{count}} steps not shown',
+  'goalProcess.linked.checkFailed': 'Status unconfirmed — tap to retry',
+  'goalProcess.linked.checking': 'Confirming status…',
   'goalProcess.linked.open': 'Open goal progress',
+  'goalProcess.linked.retry': 'Retry confirming the goal status',
   'goalProcess.portal.openPage': 'Open goal page',
   'goalProcess.portal.title': 'Goal',
   'goalProcess.result.changes.comment': 'Your feedback',
@@ -2679,7 +2716,6 @@ export default {
   'goalProcess.result.continueSeed.open': 'Still open:',
   'goalProcess.result.continueSeed.requirement': 'Original requirement:',
   'goalProcess.result.continueSeed.title': 'Continue: {{title}}',
-  'goalProcess.result.criteria.document': 'Evidence document',
   'goalProcess.result.criteria.empty': 'This Goal has no structured acceptance criteria.',
   'goalProcess.result.criteria.evidenceCount': '{{count}} evidence',
   'goalProcess.result.criteria.state.failed': 'Not met',
@@ -2984,6 +3020,11 @@ export default {
   'goalTurn.trigger.takeover': 'Takeover',
   'taskList.activeTasks': 'Active Tasks',
   'taskList.all': 'All tasks',
+  'taskList.completedTasks.all': 'All',
+  'taskList.completedTasks.day': 'Past day',
+  'taskList.completedTasks.month': 'Past month',
+  'taskList.completedTasks.none': 'None',
+  'taskList.completedTasks.week': 'Past week',
   'taskList.archived': 'Archived',
   'taskList.visibility.all': 'All',
   'taskList.visibility.label': 'Visibility',
@@ -2992,12 +3033,12 @@ export default {
   'taskList.emptyHero.greeting': 'What should we tackle today?',
   'taskList.emptyHero.templatesTitle': 'Templates picked for you',
   'taskList.form.columns': 'Columns',
+  'taskList.form.completedTasks': 'Completed & canceled',
   'taskList.form.grouping': 'Grouping',
   'taskList.form.nestedSubTasks': 'Nested sub-tasks',
   'taskList.form.orderCompletedByRecency': 'Sort completed tasks by recency',
   'taskList.form.ordering': 'Ordering',
   'taskList.form.showArchived': 'Show archived',
-  'taskList.form.showCompleted': 'Show completed & canceled',
   'taskList.form.showSubTasks': 'Show sub-tasks',
   'taskList.form.subGrouping': 'Sub-grouping',
   'taskList.hiddenCompleted.count_one': '{{count}} task',
@@ -3164,7 +3205,8 @@ export default {
   'tool.intervention.mode.autoRun': 'Auto Approve',
   'tool.intervention.mode.autoRunDesc': 'Automatically approve all tool executions',
   'tool.intervention.mode.manual': 'Manual',
-  'tool.intervention.mode.manualDesc': 'Manual approval required for each invocation',
+  'tool.intervention.mode.manualDesc':
+    'Asks before each invocation, except actions you chose not to be asked about again',
   'tool.intervention.onboarding.agentIdentity.editHint':
     'You can edit the name or avatar directly below.',
   'tool.intervention.onboarding.agentIdentity.namePlaceholder': 'Agent name',
@@ -3281,6 +3323,8 @@ export default {
   'upload.preview.status.processing': 'Processing file...',
   'upload.preview.status.success': 'Upload complete',
   'upload.preview.status.uploading': 'Uploading file...',
+  'upload.validation.heteroImageNotSupported':
+    "{{name}} can't read images, so {{file}} was not added. Use an agent that supports images instead.",
   'upload.validation.mediaNotSupported':
     'The current model cannot read these media files, so they were not added: {{files}}. Switch to a model that supports them, or upload a different file type.',
   'upload.validation.unsupportedFileType':
@@ -3601,7 +3645,7 @@ export default {
   'workingPanel.works.emptyVersions': 'No versions yet',
   'workingPanel.works.error': 'Failed to load works',
   'workingPanel.works.documentLoadError': 'Failed to load document',
-  'workingPanel.works.canvasPublished': 'Published',
+  'workingPanel.works.canvasShared': 'Shared',
   'workingPanel.works.canvasUntitled': 'Untitled canvas',
   'workingPanel.works.changeType.created': 'Created',
   'workingPanel.works.changeType.updated': 'Updated',

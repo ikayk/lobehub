@@ -24,6 +24,7 @@ import { joinTopicAgentsToProjects } from '../utils/projectTopicAgents';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
 import { AgentModel } from './agent';
 import { EnvironmentModel } from './environment';
+import { topicHasGoal } from './topicGoal';
 
 export interface CreateProjectInput {
   avatar?: string;
@@ -1059,6 +1060,7 @@ export class ProjectModel {
         id: topics.id,
         createdAt: topics.createdAt,
         favorite: topics.favorite,
+        hasGoal: topicHasGoal(this.db, scope),
         metadata: topics.metadata,
         trigger: topics.trigger,
         userId: topics.userId,
@@ -1074,6 +1076,11 @@ export class ProjectModel {
           string | null
         >`${agents.agencyConfig}->>'executionTargetSelectionPolicy'`,
         agentBoundDeviceId: sql<string | null>`${agents.agencyConfig}->>'boundDeviceId'`,
+        // Lets a row act on its agent's external runtime (Claude Code / Codex)
+        // when that agent's config has never been loaded into the client store.
+        agentHeterogeneousProviderType: sql<
+          string | null
+        >`${agents.agencyConfig}->'heterogeneousProvider'->>'type'`,
         updatedAt: topics.updatedAt,
         projectWorkingDirectoryId: topics.projectWorkingDirectoryId,
       })

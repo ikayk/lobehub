@@ -21,6 +21,7 @@ import { BriefManifest } from '@lobechat/builtin-tool-brief';
 import { BrowserManifest } from '@lobechat/builtin-tool-browser';
 import { CalculatorManifest } from '@lobechat/builtin-tool-calculator/manifest';
 import { CanvasManifest } from '@lobechat/builtin-tool-canvas';
+import { ChannelManifest } from '@lobechat/builtin-tool-channel';
 import { CloudSandboxManifest } from '@lobechat/builtin-tool-cloud-sandbox';
 import { CredsManifest } from '@lobechat/builtin-tool-creds';
 import { DashboardManifest } from '@lobechat/builtin-tool-dashboard';
@@ -502,6 +503,13 @@ const builtinToolRegistry: LobeBuiltinTool[] = [
     type: 'builtin',
   },
   {
+    discoverable: false,
+    hidden: true,
+    identifier: ChannelManifest.identifier,
+    manifest: ChannelManifest,
+    type: 'builtin',
+  },
+  {
     identifier: MessageManifest.identifier,
     manifest: MessageManifest,
     // Context-aware: drops APIs the current IM platform can't fulfil (e.g.
@@ -544,7 +552,9 @@ const builtinToolRegistry: LobeBuiltinTool[] = [
     type: 'builtin',
   },
   {
-    discoverable: false,
+    // Hidden from the Tools popover (a goal starts from `/goal`), but
+    // discoverable so the activator can enable it when the user asks for a goal
+    // in plain words or wants a rejected goal proposal redone.
     hidden: true,
     identifier: GoalManifest.identifier,
     manifest: GoalManifest,
