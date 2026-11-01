@@ -4,6 +4,7 @@ import type { ProjectStatus, ProjectVisibility } from '@lobechat/types';
 import { and, asc, desc, eq, inArray, isNull, max, ne, or, sql } from 'drizzle-orm';
 
 import { agents } from '../schemas/agent';
+import { channelMembers } from '../schemas/channel';
 import { chatGroupsAgents } from '../schemas/chatGroup';
 import { environments } from '../schemas/environment';
 import { knowledgeBases } from '../schemas/file';
@@ -21,6 +22,7 @@ import { topics } from '../schemas/topic';
 import { works } from '../schemas/work';
 import type { LobeChatDatabase } from '../type';
 import { joinTopicAgentsToProjects } from '../utils/projectTopicAgents';
+import { topicRunStartedAtColumn } from '../utils/topicRunStartedAt';
 import { buildWorkspacePayload, buildWorkspaceWhere } from '../utils/workspace';
 import { AgentModel } from './agent';
 import { EnvironmentModel } from './environment';
@@ -227,7 +229,7 @@ export class ProjectModel {
 
   /**
    * A coordinator provisioned for one project: a virtual, non-builtin agent no
-   * other project leads or counts as a member, and no group or session holds.
+   * other project leads or counts as a member, and no group, session or Channel holds.
    */
   async isDedicatedCoordinator(
     agentId: string,
@@ -265,8 +267,9 @@ export class ProjectModel {
     if (stillUsed) return false;
 
     // A group's own members are virtual and slugless as well; they belong to the group.
-    // A session link would take the agent's conversations with it on delete, and a
-    // member of another project would drop out of it.
+    // A session link would take the agent's conversations with it on delete, a member of
+    // another project would drop out of it, and a Channel (such as the project's default
+    // General, which outlives the project) would be left with no Agent to answer.
     const [linked] = await db
       .select({ agentId: chatGroupsAgents.agentId })
       .from(chatGroupsAgents)
@@ -276,6 +279,13 @@ export class ProjectModel {
           .select({ agentId: agentsToSessions.agentId })
           .from(agentsToSessions)
           .where(eq(agentsToSessions.agentId, agentId)),
+      )
+      .union(
+        db
+          // Nullable column, but the filter below pins it to this agent.
+          .select({ agentId: sql<string>`${channelMembers.agentId}` })
+          .from(channelMembers)
+          .where(and(eq(channelMembers.agentId, agentId), eq(channelMembers.status, 'active'))),
       )
       .union(
         db
@@ -1066,6 +1076,8 @@ export class ProjectModel {
         userId: topics.userId,
         title: topics.title,
         status: topics.status,
+        // The project sidebar draws a running row's elapsed clock from this.
+        runStartedAt: topicRunStartedAtColumn(this.db),
         agentId: topics.agentId,
         agentTitle: agents.title,
         agentName: agents.name,

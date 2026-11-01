@@ -114,6 +114,11 @@ vi.mock('./GoalSupervisorToggle', () => ({
 vi.mock('@/features/Portal/router', () => ({
   PortalContent: () => <div data-testid="goal-portal-content" />,
 }));
+vi.mock('@/features/Favorites', () => ({
+  FavoriteButton: () => null,
+  useCurrentFavoritePath: () => '/favorite-path',
+  useFavoriteMenuItem: () => null,
+}));
 vi.mock('@/features/NavHeader', () => ({
   default: ({ left, right }: { left: ReactNode; right: ReactNode }) => (
     <div>
@@ -148,6 +153,7 @@ vi.mock('./GoalChat', () => ({
   ),
 }));
 vi.mock('./GoalDetailActions', () => ({ default: () => null }));
+vi.mock('./GoalDetailTitle', () => ({ default: () => null }));
 vi.mock('./GoalHeaderMetrics', () => ({ default: () => null }));
 vi.mock('./GoalRequirement', () => ({ default: () => <div data-testid="goal-requirement" /> }));
 vi.mock('./NorthStarMetrics', () => ({ default: () => <div data-testid="goal-north-star" /> }));

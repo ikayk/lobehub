@@ -17,6 +17,7 @@ import {
   type ProjectKnowledgeBaseBindingPatch,
   projectService,
 } from '@/services/project';
+import { refreshChannelListIfEnabled } from '@/store/channel/refreshIfEnabled';
 import { createDevtools } from '@/store/middleware/createDevtools';
 import { expose } from '@/store/middleware/expose';
 import { useProjectDirectoryStore } from '@/store/projectWorkingDirectory';
@@ -94,6 +95,24 @@ export const initialProjectState: ProjectStoreState = {
 const LIST_PARAMS = {} as Record<string, never>;
 
 const devtools = createDevtools('project');
+
+/**
+ * A favorited project keeps a title and icon snapshot in the sidebar. Renames
+ * and logo changes come from Project Settings, where no favorites row is
+ * mounted to refresh it, so every save pushes the new values.
+ */
+const syncProjectFavorite = (project: Pick<ProjectListItem, 'avatar' | 'id' | 'name'>): void => {
+  // Loaded on demand: a static import would pull the home store, and through
+  // it the chat store, into every chunk that touches projects.
+  void import('@/store/home')
+    .then(({ useHomeStore }) =>
+      useHomeStore.getState().syncFavoriteSnapshot('project', project.id, {
+        icon: project.avatar ?? null,
+        title: project.name,
+      }),
+    )
+    .catch((error) => console.error('[project] failed to sync the favorite snapshot', error));
+};
 
 export const useProjectStore = createWithEqualityFn<ProjectStore>()(
   devtools((set, get) => {
@@ -175,6 +194,7 @@ export const useProjectStore = createWithEqualityFn<ProjectStore>()(
           items && !items.some((item) => item.id === project.id) ? [project, ...items] : items,
         );
         void refreshList();
+        refreshChannelListIfEnabled();
         return project;
       },
       deleteProject: async (id) => {
@@ -300,6 +320,7 @@ export const useProjectStore = createWithEqualityFn<ProjectStore>()(
         // Server-owned fields (updatedAt, slug normalisation) land in every copy.
         projectEntity.update(id, (project) => ({ ...project, ...response.data }));
         void refreshList();
+        if ('name' in input || 'avatar' in input) syncProjectFavorite(response.data);
         return response.data;
       },
       useFetchProjectDetail: (idOrSlug) => detail.useSync(idOrSlug || null),

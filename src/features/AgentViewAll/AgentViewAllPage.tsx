@@ -456,11 +456,12 @@ const AgentViewAllPage = memo(() => {
       <AgentCard
         item={item}
         key={item.id}
+        owner={showAuthor && item.userId ? authorByUserId.get(item.userId) : undefined}
         sidebarHidden={!isSidebarItemVisible(item)}
         onToggleSidebar={handleToggleSidebar}
       />
     ),
-    [handleToggleSidebar, isSidebarItemVisible],
+    [showAuthor, authorByUserId, handleToggleSidebar, isSidebarItemVisible],
   );
 
   const renderRow = useCallback(
@@ -483,7 +484,6 @@ const AgentViewAllPage = memo(() => {
     createConnectAgentMenuItem,
     createGroupChatMenuItem,
     createMarketAgentMenuItem,
-    isMutatingAgent,
   } = useCreateMenuItems();
 
   // Creating from the Private tab lands the item in the private bucket, so
@@ -593,7 +593,7 @@ const AgentViewAllPage = memo(() => {
             )}
             {canCreate ? (
               <DropdownMenu items={createMenuItems}>
-                <Button icon={PlusIcon} loading={isMutatingAgent}>
+                <Button icon={PlusIcon}>
                   <Icon icon={ChevronDownIcon} size={14} />
                 </Button>
               </DropdownMenu>

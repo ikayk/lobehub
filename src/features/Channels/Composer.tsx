@@ -1,4 +1,5 @@
 import type { ChannelPublicMember } from '@lobechat/types';
+import type { ISlashOption } from '@lobehub/editor';
 import {
   INSERT_MENTION_COMMAND,
   ReactCodePlugin,
@@ -7,14 +8,15 @@ import {
   ReactMentionPlugin,
 } from '@lobehub/editor';
 import { ChatInput, Editor, SendButton, useEditor } from '@lobehub/editor/react';
-import { ActionIcon, Flexbox, Upload } from '@lobehub/ui';
+import { ActionIcon, Flexbox, Text, Upload } from '@lobehub/ui';
 import * as stylex from '@stylexjs/stylex';
 import { $getSelection, $isRangeSelection } from 'lexical';
-import { Paperclip } from 'lucide-react';
+import { Paperclip, Reply, X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useActiveWorkspaceId } from '@/business/client/hooks/useActiveWorkspaceId';
 import { useLocalDragUpload } from '@/components/DragUploadZone/useLocalDragUpload';
 import { usePasteFile } from '@/components/DragUploadZone/usePasteFile';
 import DraftFile from '@/features/ChatInput/Mobile/FilePreview/FileItem/File';
@@ -28,60 +30,55 @@ import { featureFlagsSelectors, useServerConfigStore } from '@/store/serverConfi
 import { useUserStore } from '@/store/user';
 import { userProfileSelectors } from '@/store/user/selectors';
 
-import { ComposerRecipients } from './ComposerRecipients';
 import { MemberAvatar } from './MemberAvatar';
-import { isCurrentUserMember, memberAvatar, memberName } from './memberName';
+import { isCurrentUserMember, memberName } from './memberName';
+import { getMentionGroups } from './mentionGroups';
 import { $insertChannelMentionBoundary, channelMentionIds } from './mentions';
-import { composerRecipients } from './recipients';
 import { createChannelSendRequest } from './sendRequest';
 import { styles } from './styles';
 import { useAttachments } from './useAttachments';
 import { useComposerDraft } from './useComposerDraft';
+import type { ChannelReplyTarget } from './useReplyTarget';
 
 const plugins = [ReactCodePlugin, ReactListPlugin, ReactLinkHighlightPlugin, ReactMentionPlugin];
 
 export function Composer({
   activity,
-  defaultRecipientIds,
   draftKey,
-  inThread = false,
   members,
   onSend,
-  stoppable,
-  onStop,
   placeholder,
+  replyTarget,
+  onCancelReply,
+  threadId,
 }: {
   /** Who is replying right now; shown on the line above the input. */
   activity?: ReactNode;
-  /** Agents eligible when the message mentions nobody. */
-  defaultRecipientIds: string[];
   /** Where unsent input is kept; see {@link useComposerDraft}. */
   draftKey: string;
-  inThread?: boolean;
   members: ChannelPublicMember[];
-  /** A reply here that the caller may stop is running; an empty input then offers Stop. */
-  stoppable?: boolean;
-  onStop?: () => void;
-  placeholder?: string;
+  placeholder: string;
+  replyTarget?: ChannelReplyTarget | null;
+  onCancelReply?: () => void;
+  threadId?: string | null;
   onSend: (
     content: string,
     mentions: string[],
     requestKey: string,
     fileIds?: string[],
+    replyToId?: string,
   ) => Promise<void>;
 }) {
   const { t } = useTranslation('channel');
+  const workspaceId = useActiveWorkspaceId();
   const editor = useEditor();
   const draft = useComposerDraft(editor, draftKey);
+  useEffect(() => {
+    if (replyTarget) editor.focus();
+  }, [editor, replyTarget]);
   const shouldSendOnEnter = useEnterToSend();
   const userId = useUserStore(userProfileSelectors.userId);
-  const decisionEnabled = useUserStore(
-    (s) =>
-      (s.settings.systemAgent?.channelRouting?.enabled ??
-        s.defaultSettings.systemAgent.channelRouting.enabled) !== false,
-  );
   const [content, setContent] = useState('');
-  const [mentionIds, setMentionIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const sending = useRef(false);
   const previousDocument = useRef('');
@@ -114,15 +111,15 @@ export function Composer({
       content: value,
       fileIds,
       mentions,
+      replyToId: replyTarget?.id,
     });
     try {
-      await onSend(value, mentions, requestKey, fileIds);
+      await onSend(value, mentions, requestKey, fileIds, replyTarget?.id);
       requests.complete(requestKey);
       editor.cleanDocument();
       draft.clear(sentRevision);
       attachments.clear();
       setContent('');
-      setMentionIds([]);
     } catch (cause) {
       console.error('Failed to send Channel message', cause);
       setError(t('sendFailed'));
@@ -159,30 +156,47 @@ export function Composer({
           <Flexbox horizontal align="center" style={{ minWidth: 0 }}>
             {activity}
           </Flexbox>
-          {hasDraft && (
-            <ComposerRecipients
-              recipients={composerRecipients({
-                defaultRecipientIds,
-                decisionEnabled,
-                inThread,
-                members: members.map((member) => ({
-                  actorType: member.actorType,
-                  agentId: member.agentId,
-                  avatar: memberAvatar(member),
-                  id: member.id,
-                  name: memberName(member, t('deletedMember')),
-                })),
-                mentionIds,
-              })}
-            />
-          )}
         </div>
         <ChatInput
-          header={preview || undefined}
           maxHeight={480}
           minHeight={0}
           resize={false}
           styles={{ body: { overflow: 'visible', padding: 0 } }}
+          header={
+            replyTarget || preview ? (
+              <Flexbox gap={4}>
+                {replyTarget && (
+                  <Flexbox horizontal align="center" gap={8} padding={8}>
+                    <Reply size={14} />
+                    <Flexbox flex={1} style={{ minWidth: 0 }}>
+                      <Text ellipsis fontSize={12}>
+                        {t('reply.to', { name: replyTarget.author.name || t('deletedMember') })}
+                        {' · '}
+                        {replyTarget.content || t('reply.attachment')}
+                      </Text>
+                      <Text fontSize={12} type="secondary">
+                        {t(
+                          replyTarget.author.type === 'user'
+                            ? 'reply.personHint'
+                            : threadId
+                              ? 'reply.threadHint'
+                              : 'reply.agentHint',
+                        )}
+                      </Text>
+                    </Flexbox>
+                    <ActionIcon
+                      aria-label={t('reply.cancel')}
+                      disabled={busy}
+                      icon={X}
+                      size="small"
+                      onClick={onCancelReply}
+                    />
+                  </Flexbox>
+                )}
+                {preview}
+              </Flexbox>
+            ) : undefined
+          }
         >
           <div {...stylex.props(styles.composerRow)}>
             {enableUpload && (
@@ -195,6 +209,7 @@ export function Composer({
                   aria-label={t('attachments.upload')}
                   disabled={busy || !canUpload}
                   icon={Paperclip}
+                  size={{ blockSize: 28, size: 16 }}
                   title={reason || t('attachments.upload')}
                 />
               </Upload>
@@ -202,23 +217,40 @@ export function Composer({
             <div {...stylex.props(styles.composerEditor)}>
               <Editor
                 autoFocus
-                aria-label={placeholder || t('composer')}
+                aria-label={placeholder}
                 content=""
                 editable={!busy}
                 editor={editor}
-                placeholder={placeholder || t('composer')}
+                placeholder={placeholder}
                 plugins={plugins}
                 slashPlacement="top"
                 type="text"
                 variant="chat"
                 mentionOption={{
-                  items: mentionable.map((member) => ({
-                    icon: <MemberAvatar member={member} size={24} />,
-                    key: member.id,
-                    label: memberName(member, t('deletedMember')),
-                    metadata: { type: 'channel-member', id: member.id },
-                  })),
-                  searchKeys: ['label'],
+                  items: async (search) =>
+                    getMentionGroups(
+                      mentionable,
+                      search?.matchingString || '',
+                      t('deletedMember'),
+                      !!workspaceId,
+                    ).flatMap<ISlashOption>((group) => {
+                      const items = group.members.map((member) => ({
+                        icon: <MemberAvatar member={member} size={24} />,
+                        key: member.id,
+                        label: memberName(member, t('deletedMember')),
+                        metadata: { type: 'channel-member', id: member.id },
+                      }));
+                      return group.actorType
+                        ? [
+                            {
+                              type: 'section' as const,
+                              key: group.actorType,
+                              label: t(group.actorType === 'user' ? 'membersTitle' : 'agents'),
+                              items,
+                            },
+                          ]
+                        : items;
+                    }),
                   markdownWriter: (node) => `@${node.label}`,
                   onSelect: (instance, option) => {
                     instance.dispatchCommand(INSERT_MENTION_COMMAND, {
@@ -242,7 +274,6 @@ export function Composer({
                   if (document !== previousDocument.current) {
                     previousDocument.current = document;
                     setContent(String(editor.getDocument('markdown') || ''));
-                    setMentionIds(channelMentionIds(json, memberIds));
                     draft.save();
                   }
                 }}
@@ -256,13 +287,15 @@ export function Composer({
                 }}
               />
             </div>
+            {/* Replies run asynchronously, so Send never turns into Stop; each reply stops from the activity line. */}
+            {/* An empty composer keeps Send as a quiet icon, like an IM; it fills once there is a draft. */}
             <SendButton
-              aria-label={t(stoppable && !hasDraft ? 'stopReply' : 'send')}
+              aria-label={t('send')}
               disabled={busy || !hasDraft || attachments.blocked}
-              generating={stoppable && !hasDraft}
               loading={busy}
+              size={28}
+              type={hasDraft ? 'primary' : 'text'}
               onSend={() => void send()}
-              onStop={onStop}
             />
           </div>
         </ChatInput>
