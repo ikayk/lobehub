@@ -18,7 +18,7 @@ interface GroupConversationProps {
 
 const GroupConversation = memo<GroupConversationProps>(({ active, conversation }) => {
   const { item, preview, activeAt } = conversation;
-  const { id, avatar, backgroundColor, description, pinned, userId } = item;
+  const { id, avatar, backgroundColor, description, pinned, userId, visibility } = item;
   const { t } = useTranslation('chat');
   const title = item.title || t('untitledAgent');
   const customAvatar = typeof avatar === 'string' ? avatar : undefined;
@@ -36,6 +36,7 @@ const GroupConversation = memo<GroupConversationProps>(({ active, conversation }
     pinned: pinned ?? false,
     title,
     userId,
+    visibility,
   });
 
   return (
@@ -44,7 +45,6 @@ const GroupConversation = memo<GroupConversationProps>(({ active, conversation }
       active={active}
       activeAt={activeAt}
       contextMenuItems={contextMenuItems}
-      pinned={!!pinned}
       preview={preview}
       ref={setAnchor}
       title={title}

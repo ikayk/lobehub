@@ -33,8 +33,10 @@ import {
 } from '../../processors';
 import {
   ActiveTopicDocumentContextInjector,
+  AgentAccountContextInjector,
   AgentBuilderContextInjector,
   AgentDocumentBeforeSystemInjector,
+  AgentDocumentChangesInjector,
   AgentDocumentContextInjector,
   AgentDocumentMessageInjector,
   AgentDocumentSystemAppendInjector,
@@ -166,6 +168,7 @@ export class MessagesEngine {
       provider,
       systemRole,
       agentIdentity,
+      agentAccountContext,
       inputTemplate,
       enableAgentMode,
       enableHistoryCount,
@@ -197,6 +200,7 @@ export class MessagesEngine {
       additionalContexts,
       agentGroup,
       agentDocuments,
+      agentDocumentChanges,
       planTodo,
       userMemory,
       initialContext,
@@ -242,6 +246,8 @@ export class MessagesEngine {
     const hasDateAwareTools =
       toolIds.includes('lobe-web-browsing') || toolIds.includes('lobe-user-memory');
     const isSystemDateEnabled = enableSystemDate !== false && !hasDateAwareTools;
+    // An eval attempt renders "today" from its case clock, never the wall clock.
+    const evalClock = evalContext?.sessionDate ? new Date(evalContext.sessionDate) : undefined;
     const currentUserMessage = [...messages]
       .reverse()
       .find((m) => m.role === 'user' && typeof m.content === 'string')?.content as
@@ -325,6 +331,13 @@ export class MessagesEngine {
         enabled: !isGroupContextEnabled,
         identity: agentIdentity,
       }),
+      // The agent's own accounts + inbox, as first-class state. Injected right
+      // after the person's identity because it refines "who am I" with "and I
+      // can be reached here". Skipped entirely when the agent owns nothing.
+      new AgentAccountContextInjector({
+        context: agentAccountContext,
+        enabled: isAgentMode,
+      }),
       // Eval context (appends envPrompt)
       new EvalContextSystemInjector({ enabled: !!evalContext?.envPrompt, evalContext }),
       // Bot platform context (formatting instructions for non-Markdown platforms)
@@ -333,7 +346,7 @@ export class MessagesEngine {
         enabled: !!botPlatformContext,
       }),
       // System date
-      new SystemDateProvider({ enabled: isSystemDateEnabled, timezone }),
+      new SystemDateProvider({ enabled: isSystemDateEnabled, now: evalClock, timezone }),
       // Model info (name / id / knowledge cutoff)
       new ModelInfoProvider({
         displayName: modelDisplayName,
@@ -444,6 +457,14 @@ export class MessagesEngine {
 
       // Agent documents → after-first-user, context-end
       new AgentDocumentMessageInjector(agentDocConfig),
+      // Agent-document change notes → the user message each belongs to (the
+      // index renders a snapshot; these say what changed since). Not gated on
+      // `hasAgentDocuments`: a snapshot taken before the first document has no
+      // rows, and the notes are then the only place new documents appear.
+      new AgentDocumentChangesInjector({
+        changes: agentDocumentChanges,
+        enabled: isAgentMode && !!agentDocumentChanges,
+      }),
       // Active topic document → last user message, for continuing document work outside page scope
       new ActiveTopicDocumentContextInjector({
         activeTopicDocument: initialContext?.activeTopicDocument,
@@ -457,7 +478,10 @@ export class MessagesEngine {
       // Selected tools (ephemeral user-selected @tool for this request)
       new SelectedToolInjector({ enabled: hasSelectedTools, selectedTools }),
       // Generic user-attached selections from chat/code/text contexts.
-      new ContextSelectionsInjector({ enabled: true }),
+      new ContextSelectionsInjector({
+        enabled: true,
+        mcpAppsEnabled: this.params.enableMcpAppContext,
+      }),
       // Local-system file snapshots (replay send-time @file reads as real tool results)
       new LocalSystemToolSnapshotInjector({ enabled: true }),
       // Project context (members, linked knowledge, open tasks) for a run inside a project

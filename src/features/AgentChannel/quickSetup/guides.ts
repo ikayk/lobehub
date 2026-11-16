@@ -11,6 +11,7 @@ import {
   QQ_BOT_CONSOLE_URL,
   SLACK_APPS_URL,
   TELEGRAM_BOTFATHER_URL,
+  WECOM_ADMIN_CONSOLE_URL,
 } from './links';
 
 export type SetupLinkLabel =
@@ -113,19 +114,19 @@ export const getSetupGuide = (
       };
     }
     case 'discord': {
+      const botSettingsLink = {
+        href: appId ? buildDiscordBotPageUrl(appId) : DISCORD_DEVELOPER_PORTAL_URL,
+        label: 'openBotSettings',
+      } as const;
       return {
         guide: 'discord',
         steps: [
           { key: 'create', link: { href: DISCORD_DEVELOPER_PORTAL_URL, label: 'openConsole' } },
           { key: 'credentials', fields: ['applicationId', 'publicKey'] },
-          {
-            key: 'bot',
-            fields: ['botToken'],
-            link: {
-              href: appId ? buildDiscordBotPageUrl(appId) : DISCORD_DEVELOPER_PORTAL_URL,
-              label: 'openBotSettings',
-            },
-          },
+          { key: 'bot', fields: ['botToken'], link: botSettingsLink },
+          // Without Message Content Intent the bot connects but reads empty messages, so it
+          // gets its own step instead of trailing the token copy.
+          { key: 'intent', link: botSettingsLink },
           {
             beforeConnect: true,
             key: 'invite',
@@ -151,6 +152,15 @@ export const getSetupGuide = (
         steps: [
           { key: 'create', link: { href: QQ_BOT_CONSOLE_URL, label: 'openConsole' } },
           { key: 'credentials', fields: ['applicationId', 'appSecret'] },
+        ],
+      };
+    }
+    case 'wecom': {
+      return {
+        guide: 'wecom',
+        steps: [
+          { key: 'create', link: { href: WECOM_ADMIN_CONSOLE_URL, label: 'openConsole' } },
+          { key: 'credentials', fields: ['applicationId', 'secret'] },
         ],
       };
     }

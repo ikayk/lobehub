@@ -5,6 +5,25 @@ export default {
   'directMention.progress.usingTool': 'Using {{name}}…',
   'directMention.progress.viewFullRecord': 'View full record',
   'sharePage.app.linkCopied': 'Link copied',
+  'heteroAgent.antigravityQuota.title': 'Antigravity quota',
+  'heteroAgent.antigravityQuota.tooltip': 'View Antigravity model quotas',
+  'heteroAgent.antigravityQuota.fiveHour': '5 hours',
+  'heteroAgent.antigravityQuota.remainingAmount': '{{amount}} remaining',
+  'heteroAgent.antigravityQuota.unknown': 'Unknown',
+  'heteroAgent.antigravityQuota.disabled': 'Unavailable',
+  'heteroAgent.antigravityQuota.resetUnconfirmed':
+    'Reset time reached. Refresh to check the latest quota.',
+  'heteroAgent.antigravityQuota.stale': 'Showing the last query. Refresh to confirm current quota.',
+  'heteroAgent.antigravityQuota.authRequired': 'Run agy in a terminal to sign in, then refresh.',
+  'heteroAgent.antigravityQuota.cliNotFound':
+    'Antigravity CLI was not found on this device. Install agy, then refresh.',
+  'heteroAgent.antigravityQuota.unsupported':
+    'Update agy to a version that supports structured quota queries, then refresh.',
+  'heteroAgent.antigravityQuota.timeout':
+    'The quota query timed out. Check the device connection and try again.',
+  'heteroAgent.antigravityQuota.error':
+    'Could not query Antigravity quota. Check the device and try again.',
+
   'sharePage.app.open': 'Open app',
   'sharePage.app.help': 'Trouble opening the app?',
   'sharePage.app.helpDescription':
@@ -26,6 +45,7 @@ export default {
   'sharePage.app.fallback.download': 'Get the app',
   'sharePage.app.fallback.title': 'App didn’t open?',
 
+  'newAntigravityAgent': 'Add Antigravity',
   'backgroundActivity.alertDesc': '{{name}} is using {{memory}} of memory and {{cpu}} CPU.',
   'backgroundActivity.cpu': 'CPU',
   'backgroundActivity.details': 'View details',
@@ -76,6 +96,7 @@ export default {
 
   'response.contentSafetyNotice':
     'This reply was limited for content safety reasons. If this happens often, you may temporarily lose access to this model.',
+  'goalBatch.cell.accepted': 'Accepted',
   'goalBatch.cell.backlog': 'Not run',
   'goalBatch.cell.done': 'Done',
   'goalBatch.cell.human': 'Needs you',
@@ -196,6 +217,7 @@ export default {
   'goalBatch.round.reviseEdge': 'Sent back · revise',
   'goalBatch.round.title': 'Round {{revision}}',
   'goalBatch.status.done': 'All done',
+  'goalBatch.status.held': 'Waiting for your release',
   'goalBatch.status.human': '{{count}} need you',
   'goalBatch.status.pending': 'Not started',
   'goalBatch.status.running': 'In progress',
@@ -315,6 +337,7 @@ export default {
   'inaccessibleFile.desc': 'No access — it may have been set to private or deleted by its owner',
   'inaccessibleFile.name': 'Unavailable file',
   'internalLink.agent.open': 'Open agent',
+  'agentProfile.creator': 'Creator',
   'agentProfile.files_one': '{{count}} file',
   'agentProfile.files_other': '{{count}} files',
   'agentProfile.knowledgeBases_one': '{{count}} library',
@@ -323,7 +346,6 @@ export default {
   'agentProfile.skills_one': '{{count}} skill',
   'agentProfile.skills_other': '{{count}} skills',
   'agentSender.sourceTopic': 'Source topic',
-  'agentSignal.receipts.agentSignalLabel': 'Agent Signal',
   'agentSignal.receipts.memory.detail': 'Saved this for future replies',
   'agentSignal.receipts.memory.openInMemory': 'Open in Memory',
   'agentSignal.receipts.memory.title': 'Memory saved',
@@ -893,7 +915,7 @@ export default {
     'Turn it on in Settings → Labs, or switch this agent to Subscription authentication.',
   'heteroAgent.apiMode.labDisabled.title': 'Provider binding is a Labs experiment',
   'heteroAgent.apiMode.localOnly.desc':
-    'Switch the execution environment to Local device, or use Subscription authentication.',
+    'Switch the execution environment to This computer, or use Subscription authentication.',
   'heteroAgent.apiMode.localOnly.title': 'API mode requires Desktop local execution',
   'heteroAgent.apiMode.modelUnavailable':
     'The model "{{providerId}}/{{model}}" is disabled or no longer available.',
@@ -908,19 +930,17 @@ export default {
   'heteroAgent.executionTarget.sandboxUnsupported':
     '{{name}} currently runs only on a local or connected device',
   'heteroAgent.executionTarget.auto': 'Auto',
+  'heteroAgent.executionTarget.builtinGroup': 'Built-in',
   'heteroAgent.executionTarget.autoDesc':
     'Use an online device automatically, picking one when several are available',
   'heteroAgent.executionTarget.fixedTip':
     'The execution environment is fixed in the Agent Profile and cannot be switched while chatting.',
   'heteroAgent.executionTarget.infoTooltip':
     'Choose where this Agent runs. A device can read and write files or operate a computer; Cloud Sandbox runs in an isolated temporary environment.',
-  'heteroAgent.executionTarget.gateway': 'Gateway',
-  'heteroAgent.executionTarget.gatewayDesc':
-    'Run through the device gateway so other clients can follow progress',
   'heteroAgent.executionTarget.loadFailed': 'Couldn’t load devices.',
   'heteroAgent.executionTarget.loading': 'Loading devices…',
-  'heteroAgent.executionTarget.local': 'Local device',
-  'heteroAgent.executionTarget.localDesc': 'Run as a local process on this desktop app',
+  'heteroAgent.executionTarget.local': 'This computer',
+  'heteroAgent.executionTarget.localDesc': 'Runs right here, with access to your files and tools',
   'heteroAgent.executionTarget.localSandbox': 'Local sandbox',
   'heteroAgent.executionTarget.localSandboxDesc':
     'Run on this computer, with commands limited to the working directory and no network',
@@ -932,7 +952,7 @@ export default {
   'heteroAgent.executionTarget.localSandboxUnavailable': 'Not available on this device: {{reason}}',
   'heteroAgent.executionTarget.manage': 'Manage',
   'heteroAgent.executionTarget.noDevices':
-    'No remote devices yet. Run `lh connect` on another machine to add one.',
+    'No other devices yet. Run `lh connect` on another computer to add one.',
   'heteroAgent.executionTarget.noWorkspaceDevices':
     'No workspace devices yet. Run `{{cmd}}` on a machine to enroll it for every member.',
   'heteroAgent.executionTarget.none': 'No device',
@@ -949,6 +969,7 @@ export default {
   'heteroAgent.executionTarget.reconnect': 'Reconnect',
   'heteroAgent.executionTarget.reconnectFailed':
     'Could not reconnect this device. Make sure the desktop app is running, then try again.',
+  'heteroAgent.executionTarget.otherDevicesGroup': 'Other devices',
   'heteroAgent.executionTarget.personalGroup': 'Private Devices',
   'heteroAgent.executionTarget.sandbox': 'Cloud Sandbox',
   'heteroAgent.executionTarget.sandboxDesc': 'Runs in the cloud, no machine needed',
@@ -982,6 +1003,15 @@ export default {
   'input.addUser': 'Add a user message',
   'input.agentModeUnsupportedModel':
     'The current model doesn’t support agentic tool calling. Switch to a model with agent capability for the best experience.',
+  'input.agentRunFeeUnfunded.desc':
+    'Each agent run carries a fee, even on your own API key. Top up or upgrade your plan, then send again.',
+  'input.agentRunFeeUnfunded.descOverflow':
+    'Each agent run carries a fee, even on your own API key. Your balance covers it: use your balance, then send again.',
+  'input.agentRunFeeUnfunded.descSubscribe':
+    'Each agent run carries a fee, even on your own API key. Subscribe to a plan, then send again.',
+  'input.agentRunFeeUnfunded.descTopUp':
+    'Each agent run carries a fee, even on your own API key. Top up, then send again.',
+  'input.agentRunFeeUnfunded.title': 'Not enough credits to pay the agent run fee',
   'input.agentSlugMoved':
     'This link now opens a different agent. Switching to it — try again once it opens. Your draft is kept.',
   'input.agentSlugUnconfirmed':
@@ -1034,6 +1064,7 @@ export default {
   'input.warp': 'New Line',
   'input.warpWithKey': 'Press <key/> to insert a line break',
   'inputQueue.delete': 'Delete',
+  'inputQueue.deliveringHint': 'With the agent, shows in the chat once it reads it',
   'inputQueue.edit': 'Edit',
   'inputQueue.enqueueRejected': 'Queue is full. Try again after the current run finishes.',
   'inputQueue.queuedHint': 'Sends when the current step finishes',
@@ -1041,7 +1072,10 @@ export default {
   'inputQueue.queuedRunEndHint': 'Sends when the current run finishes',
   'inputQueue.queuedRunEndMergeHint': 'Merged and sent when the current run finishes',
   'inputQueue.sendNow': 'Send now (interrupts current run)',
+  'inputQueue.sendNowFailed': 'Couldn’t interrupt the current run. Try again.',
   'inputQueue.alreadyDelivered': 'Already sent to the agent',
+  'inputQueue.alreadyDelivering':
+    'The agent already has this message. It shows in the chat once the agent reads it.',
   'inputQueue.withdrawFailed': 'Couldn’t take the message back. Try again.',
   'intentUnderstanding.title': 'Understanding your intent...',
   'inviteMembers': 'Invite members',
@@ -1062,6 +1096,9 @@ export default {
   'knowledgeBase.title': 'Library',
   'knowledgeBase.uploadGuide': "Uploaded files can be viewed in the 'Resources' section.",
   'knowledgeBase.viewMore': 'View More',
+  'memberProfile.email': 'Email',
+  'memberProfile.jobTitle': 'Job title',
+  'memberProfile.responsibilities': 'Responsibilities',
   'memberSelection.addMember': 'Add Member',
   'memberSelection.allMembers': 'All members',
   'memberSelection.createGroup': 'Create Group',
@@ -1244,6 +1281,16 @@ export default {
     "Skill wasn't added. Retry, or create an Agent anyway.",
   'createModal.skillSuggestion.title': 'A Skill may fit better',
   'createModal.title': 'What should this Agent do?',
+  'antigravityInstallGuide.actions.openDocs': 'Open Install Guide',
+  'antigravityInstallGuide.actions.openSystemTools': 'Open System Tools',
+  'antigravityInstallGuide.afterInstall':
+    'After installing, run `agy` and sign in with your Google account, then retry your message or click Re-detect in System Tools.',
+  'antigravityInstallGuide.desc':
+    'Antigravity needs the native agy CLI with stream-json support. Follow the install guide for your operating system and make sure the `agy` command is available.',
+  'antigravityInstallGuide.menuNotification.title': 'Antigravity CLI not found',
+  'antigravityInstallGuide.reason': 'LobeHub could not start Antigravity: {{message}}',
+  'antigravityInstallGuide.title': 'Install Antigravity CLI',
+  'connectAgent.providerDesc.antigravity': 'Google coding agent CLI',
   'ampInstallGuide.actions.openDocs': 'Open Install Guide',
   'ampInstallGuide.actions.openSystemTools': 'Open System Tools',
   'ampInstallGuide.afterInstall':
@@ -1637,6 +1684,9 @@ export default {
   'textSelection.title': 'Message selection',
   'pin': 'Pin',
   'pinOff': 'Unpin',
+  'pinForTeam': 'Pin for team',
+  'pinForTeamForbidden': 'Only workspace owners and admins can change team pins',
+  'unpinForTeam': 'Unpin for team',
   'rag.referenceChunks': 'Reference Source',
   'rag.userQuery.actions.delete': 'Delete Query Rewrite',
   'rag.userQuery.actions.regenerate': 'Regenerate Query',
@@ -1668,9 +1718,7 @@ export default {
   'gatewayMode.desc':
     "Run agents in the cloud through LobeHub's Agent Gateway. Tasks keep running even after you close the page.",
   'sandboxStorage.ephemeral': 'Temporary working directory',
-  'sandboxStorage.ephemeralDesc': 'Cleaned up when the sandbox is recycled',
   'sandboxStorage.persistentUpsell': 'Persistent working directory',
-  'sandboxStorage.persistentUpsellDesc': 'Keep files across runs and topics',
   'sandboxStorage.setUpEnvironmentDesc': 'A persistent directory lives in an environment',
   'sandboxStorage.setUpEnvironment': 'Set up an environment',
   'sandboxStorage.manage': 'Manage',
@@ -1784,6 +1832,7 @@ export default {
   'floatingChatPanel.expand': 'Expand chat',
   'globalApproval.collapse': 'Collapse',
   'globalApproval.dismiss': 'Dismiss',
+  'globalApproval.dismissFailed': "Couldn't dismiss it. Please try again.",
   'globalApproval.dismissHint': 'Hide it here; it stays on Home',
   'globalApproval.dismissed': 'Dismissed. You can still handle it from Home.',
   'globalApproval.goToConversation': 'Open conversation',
@@ -1970,9 +2019,21 @@ export default {
   'supervisor.todoList.allComplete': 'All tasks completed',
   'supervisor.todoList.title': 'Tasks Completed',
   'tab.groupProfile': 'Group Profile',
+  'tab.backToChat': 'Back to chat',
+  'tab.group.identity': 'Identity',
+  'tab.group.shape': 'Shape',
+  'tab.group.setup': 'Configure',
+  'tab.context': 'Context',
+  'tab.engine': 'Engine',
+  'tab.environment': 'Environment',
+  'tab.instruction': 'Instruction',
+  'tab.knowledge': 'Knowledge Base',
+  'tab.tools': 'Tools & Connectors',
   'tab.integration': 'IM Bots',
+  'tab.mail': 'Mail',
   'tab.profile': 'Agent Profile',
   'tab.profileBasic': 'Profile',
+  'tab.skills': 'Skills',
   'tab.search': 'Search',
   'tab.tasks': 'Tasks',
   'task.activity.calling': 'Calling Skill...',
@@ -2003,6 +2064,8 @@ export default {
   'taskSchedule.advancedSettings': 'Advanced settings',
   'taskSchedule.clear': 'Clear',
   'taskSchedule.continuous': 'Continuous',
+  'taskSchedule.customMinute': 'Custom',
+  'taskSchedule.customMinute.badge': 'Pro',
   'taskSchedule.enable': 'Enable automation',
   'taskSchedule.every': 'Every',
   'taskSchedule.frequency': 'Frequency',
@@ -2025,9 +2088,11 @@ export default {
   'taskSchedule.summary.daily': 'Daily at {{time}}',
   'taskSchedule.summary.disabled': 'Automation is off',
   'taskSchedule.summary.everyNHours': 'Every {{count}} hours',
+  'taskSchedule.summary.everyNHoursAtMinute': 'Every {{count}} hours at :{{minute}}',
   'taskSchedule.summary.everyNHoursHalfPast': 'Every {{count}} hours at half past',
   'taskSchedule.summary.heartbeat': 'Runs every {{interval}}',
   'taskSchedule.summary.hourly': 'Every hour',
+  'taskSchedule.summary.hourlyAtMinute': 'Every hour at :{{minute}}',
   'taskSchedule.summary.hourlyHalfPast': 'Every hour at half past',
   'taskSchedule.summary.weekly': 'Every {{days}} at {{time}}',
   'taskSchedule.tag.add': 'Set schedule',
@@ -2183,6 +2248,9 @@ export default {
     'The task moves to the trash with its runs and can be restored within 30 days.',
   'taskDetail.deleteConfirm.ok': 'Delete',
   'taskDetail.deleteConfirm.title': 'Delete this task?',
+  'taskDetail.foreignWorkspace.notice':
+    'This task belongs to {{workspace}}. It is shown read-only here.',
+  'taskDetail.foreignWorkspace.open': 'Open in {{workspace}}',
   'taskDetail.instruction': 'Instruction',
   'taskDetail.modelConfig': 'Model Override',
   'taskDetail.saveModelConfig': 'Save',
@@ -2534,6 +2602,7 @@ export default {
     'Runs still in progress will be stopped and no new tasks will start. You can reopen the goal from this menu.',
   'goalDetail.closeConfirm.canceled.ok': 'Cancel goal',
   'goalDetail.closeConfirm.canceled.title': 'Cancel this goal?',
+  'goalDetail.closeConfirm.failed': 'Couldn’t close this goal. Try again in a moment.',
   'goalDetail.deleteConfirm.content':
     'This goal and its task plan will be permanently deleted. Conversation history is retained.',
   'goalDetail.deleteConfirm.ok': 'Delete goal',
@@ -3269,6 +3338,7 @@ export default {
   'taskList.groupBy.member': 'Assignee',
   'taskList.groupBy.none': 'No grouping',
   'taskList.groupBy.priority': 'Priority',
+  'taskList.groupBy.project': 'Project',
   'taskList.groupBy.schedule': 'Schedule',
   'taskList.groupBy.status': 'Status',
   'taskList.orderBy.assignee': 'Agent',
@@ -3783,12 +3853,6 @@ export default {
   'workingPanel.overview.empty':
     'Workspace activity and outputs will appear here as the agent works.',
   'workingPanel.overview.emptyTitle': 'Ready to work',
-  'workingPanel.overview.profile.view': 'View profile',
-  'workingPanel.profile.description': 'About',
-  'workingPanel.profile.model': 'Model',
-  'workingPanel.profile.noDescription': 'No description yet',
-  'workingPanel.profile.tabs.detail': 'Details',
-  'workingPanel.profile.tabs.workspace': 'Workspace',
   'workingPanel.overview.deviceError': 'Could not load the device status',
   'workingPanel.overview.environmentError': 'Could not load the repository status',
   'workingPanel.overview.execution.device': 'Connected device',
@@ -4353,31 +4417,26 @@ export default {
   'userFeedbackCard.count_other': '{{count}} comments',
   'userFeedbackCard.title': 'User feedback',
   'you': 'You',
-  'sandboxDrive.pickerTitle': 'Working directory',
-  'sandboxDrive.pickerInfoTooltip':
-    'Pick a folder on your drive and its files are kept across conversations. Without one, the sandbox is temporary.',
-  'sandboxDrive.manageEnvironments': 'Environments',
-  'sandboxEnvironment.title': 'Environment',
-  'sandboxEnvironment.hint':
-    'Cloned and set up once in the working directory before the first command. A folder that already has files is left as it is.',
-  'sandboxEnvironment.none': 'No environment',
-  'sandboxEnvironment.noneDesc': 'Start from an empty working directory',
-  'sandboxEnvironment.empty': 'No environments yet. Create one in Environments.',
+  'sandboxDrive.manageEnvironments': 'Settings',
+  'sandboxDrive.openStorage': 'Sandbox Storage',
   'sandboxEnvironment.missing': 'Environment unavailable',
   'sandboxEnvironment.loading': 'Loading environment…',
+  'sandboxDrive.pickerTitle': 'Work location',
+  'sandboxDrive.pickerInfoTooltip':
+    'A temporary directory is cleaned up with the sandbox. A folder on your cloud drive is kept across conversations. A repository is cloned before the first command.',
+  'sandboxEnvironment.title': 'Repository',
+  'sandboxEnvironment.hint': 'Cloned and set up once before the first command.',
+  'sandboxEnvironment.empty': 'No repositories yet. Add one to get started.',
+  'sandboxEnvironment.add': 'Add repository',
   'sandboxEnvironment.loadFailed': "Couldn't load environments",
   'sandboxEnvironment.retry': 'Retry',
   'sandboxEnvironment.saveFailed': 'Could not change the environment. Try again.',
-  'sandboxDrive.root': 'Drive root',
+  'sandboxDrive.root': 'Root',
   'sandboxDrive.building': '{{name}} · building',
-  'sandboxDrive.browse': 'Choose a folder on your drive…',
+  'sandboxDrive.title': 'Cloud drive',
   'sandboxDrive.browseOther': 'Choose another folder…',
-  'sandboxDrive.browseDesc': 'Files in it are kept across conversations',
-  'sandboxDrive.folderDesc': 'Folder on your drive · {{path}}',
-  'sandboxDrive.environmentDesc': 'Environment directory · installed packages are kept too',
   'sandboxDrive.environmentBuildingDesc':
     'Environment directory · building, usable once it finishes',
-  'sandboxDrive.upsell': 'Keep files on a drive',
   'sandboxDrive.fallback.directoryMissing':
     'This folder no longer exists on the drive. Runs use a temporary sandbox until you pick another folder.',
   'sandboxDrive.fallback.instanceUnavailable':
@@ -4390,7 +4449,6 @@ export default {
   'sandboxDrive.fallback.instanceRebuildRequired':
     'This private environment directory is still on the public drive and needs to be rebuilt on your personal drive. This run will use a temporary sandbox.',
   'sandboxDrive.fallbackChip.instanceRebuildRequired': 'Rebuild on personal drive',
-  'sandboxDrive.folderOnDriveDesc': '{{drive}} · {{path}}',
   'input.costEstimate.hintUsd': 'Estimated cost: about {{amount}}',
   'input.costEstimate.usdPerMillionTokens': '{{amount}} / 1M tokens',
   'taskLabel.add': 'Add labels',
@@ -4402,6 +4460,20 @@ export default {
   'taskLabel.noLabel': 'No label',
   'taskLabel.noLabels': 'No labels',
   'taskLabel.searchPlaceholder': 'Search or create labels…',
+  'taskProject.add': 'Add to project',
+  'taskProject.empty': 'No projects yet',
+  'taskProject.inheritedFromParent': "A subtask stays in its parent's project",
+  'taskProject.label': 'Project',
+  'taskProject.loadFailed': 'Failed to load projects',
+  'taskProject.moveRefused':
+    "Can't move this task while its parent, subtasks or dependencies stay in the current project. Move or detach them first.",
+  'taskProject.noMatch': 'No matching project',
+  'taskProject.none': 'No project',
+  'taskProject.searchPlaceholder': 'Search projects…',
+  'taskProject.unavailable': 'Unavailable project',
   'taskList.filter.field.label': 'Label',
+  'taskList.find.clear': 'Clear search',
+  'taskList.find.open': 'Find in view',
+  'taskList.find.placeholder': 'Find in view…',
   'taskList.groupBy.labelGroup': 'Label: {{name}}',
 };

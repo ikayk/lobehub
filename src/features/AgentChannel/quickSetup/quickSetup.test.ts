@@ -144,6 +144,19 @@ describe('getSetupGuide', () => {
     expect(after.steps.find((step) => step.key === 'bot')!.link?.href).toContain('/42/bot');
   });
 
+  it('gives Message Content Intent its own Discord step, linked to the bot settings', () => {
+    const intent = (applicationId?: string) =>
+      getSetupGuide('discord', { applicationId, appName: 'Moss' })!.steps.find(
+        (step) => step.key === 'intent',
+      )!;
+
+    expect(intent()).toMatchObject({
+      link: { href: 'https://discord.com/developers/applications', label: 'openBotSettings' },
+    });
+    expect(intent().fields).toBeUndefined();
+    expect(intent('42').link?.href).toBe('https://discord.com/developers/applications/42/bot');
+  });
+
   it('links Slack steps into the app once its ID is known', () => {
     const guide = getSetupGuide('slack', { applicationId: 'A1', appName: 'Moss' })!;
 
@@ -164,7 +177,16 @@ describe('getSetupGuide', () => {
   });
 
   it('never asks for one credential in two steps', () => {
-    for (const platform of ['discord', 'slack', 'telegram', 'qq', 'line', 'feishu', 'lark']) {
+    for (const platform of [
+      'discord',
+      'slack',
+      'telegram',
+      'qq',
+      'line',
+      'feishu',
+      'lark',
+      'wecom',
+    ]) {
       const guide = getSetupGuide(platform, { appName: 'Moss' })!;
       const keys = guide.steps.flatMap((step) => step.fields ?? []);
 
@@ -177,6 +199,16 @@ describe('getSetupGuide', () => {
     expect(getInlineFieldKeys('wechat').size).toBe(0);
   });
 
+  it('walks WeCom from the admin console to the BotID and Secret', () => {
+    const guide = getSetupGuide('wecom', { appName: 'Moss' })!;
+    expect(guide.steps.map((step) => step.key)).toEqual(['create', 'credentials']);
+    expect(guide.steps[0].link).toEqual({
+      href: 'https://work.weixin.qq.com/wework_admin/frame',
+      label: 'openConsole',
+    });
+    expect([...getInlineFieldKeys('wecom')]).toEqual(['applicationId', 'secret']);
+  });
+
   it('asks to save right after the last step with a credential, before what needs a running bot', () => {
     const at = (platform: string) => {
       const steps = getSetupGuide(platform, { appName: 'Moss' })!.steps;
@@ -184,7 +216,7 @@ describe('getSetupGuide', () => {
     };
 
     // Discord's invite needs only the app ID, and a bot in no server fails the connection test.
-    expect(at('discord')).toEqual(['create', 'credentials', 'bot', 'invite', 'connect']);
+    expect(at('discord')).toEqual(['create', 'credentials', 'bot', 'intent', 'invite', 'connect']);
     expect(at('telegram')).toEqual(['botfather', 'token', 'connect', 'privacy']);
     expect(at('line')).toEqual(['account', 'messagingApi', 'credentials', 'connect', 'webhook']);
     expect(connectStepIndex([{ key: 'only' }])).toBe(1);

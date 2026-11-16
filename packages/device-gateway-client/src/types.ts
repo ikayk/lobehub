@@ -44,6 +44,12 @@ export interface DeviceSystemInfo {
    * `codex-app-server-v1` runs `lh hetero exec --codex-app-server` with native turn provenance.
    */
   supportedAgentRuntimes?: string[];
+  /**
+   * Tunneled tool-call kinds this client runs beyond plain `'tool'` calls
+   * (e.g. `'mcp'`); absent on older clients. The desktop app runs MCP calls
+   * without reporting it — the server routes those to it by channel.
+   */
+  supportedToolCallTypes?: GatewayToolCallType[];
   /** Opt-in tool identifiers supported by this client; absent on older clients. */
   supportedTools?: string[];
   userDataPath: string;
@@ -270,6 +276,14 @@ export interface AgentRunRequestMessage {
     candidates: Array<{ externalAccountId: string; name?: string }>;
     mode: 'balanced' | 'pinned';
   };
+  /**
+   * Entrypoint name the agent asked Claude Code to report instead of its
+   * headless default. The device validates it and sets it on the spawned CLI.
+   * An empty string means the agent turned the setting off, so the device
+   * clears an entrypoint it inherited. Optional — omitted when the agent never
+   * set it; an older device ignores it.
+   */
+  claudeCodeEntrypoint?: string;
   cwd?: string;
   /**
    * Image attachments from the user message, as URLs the device can fetch

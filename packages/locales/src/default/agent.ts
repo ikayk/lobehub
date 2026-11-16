@@ -61,9 +61,11 @@ export default {
     'In the Developer Portal, click New Application and name it.',
   'channel.quickSetup.discord.credentials.title': 'Copy the Application ID and Public Key',
   'channel.quickSetup.discord.credentials.desc': 'Both are on General Information.',
-  'channel.quickSetup.discord.bot.title': 'Get the bot token and allow message content',
-  'channel.quickSetup.discord.bot.desc':
-    'On the Bot page, Reset Token and copy it, then turn on Message Content Intent.',
+  'channel.quickSetup.discord.bot.title': 'Get the bot token',
+  'channel.quickSetup.discord.bot.desc': 'On the Bot page, click Reset Token and copy it.',
+  'channel.quickSetup.discord.intent.title': 'Turn on Message Content Intent',
+  'channel.quickSetup.discord.intent.desc':
+    "On the Bot page, under Privileged Gateway Intents, turn on Message Content Intent and save. Without it, the bot can't read messages.",
   'channel.quickSetup.discord.invite.title': 'Invite the bot to your server',
   'channel.quickSetup.discord.invite.desc':
     "The invite link already carries the permissions the bot needs. For a private channel, also add the bot in that channel's Settings → Permissions.",
@@ -80,6 +82,12 @@ export default {
     'On the QQ Open Platform, create a bot and finish its basic setup.',
   'channel.quickSetup.qq.credentials.title': 'Copy the App ID and App Secret',
   'channel.quickSetup.qq.credentials.desc': "Find them in the bot's Development settings.",
+  'channel.quickSetup.wecom.create.title': 'Create an AI bot in API mode',
+  'channel.quickSetup.wecom.create.desc':
+    'In the WeCom admin console, go to Smart Zone → AI Bots, create a bot, and choose API mode with a long connection.',
+  'channel.quickSetup.wecom.credentials.title': 'Copy the BotID and Secret',
+  'channel.quickSetup.wecom.credentials.desc':
+    "Find them in the bot's API settings. A bot can be connected to only one place at a time.",
   'channel.quickSetup.line.account.title': 'Create a LINE Official Account',
   'channel.quickSetup.line.account.desc':
     'Sign in with your LINE Business ID and create the account the bot speaks as.',
@@ -161,6 +169,8 @@ export default {
     'Provide help in direct and group chats—ideal for customer service, communities, and official accounts.',
   'channel.platform.qq.description':
     'Serve users in private, group, and guild chats—ideal for Chinese communities, support, and fan groups.',
+  'channel.platform.wecom.description':
+    'Answer colleagues in WeCom direct chats and in internal group chats when they @-mention the bot—ideal for teams that already work in WeCom.',
   'channel.platform.slack.description':
     'Answer questions and run agent workflows in channels or DMs—ideal for teams that live in Slack.',
   'channel.platform.telegram.description':
@@ -306,6 +316,11 @@ export default {
   'channel.qq.webhookMigrationTitle': 'Consider migrating to WebSocket mode',
   'channel.qq.webhookMigrationDesc':
     'WebSocket mode provides real-time event delivery and automatic reconnection without needing a callback URL. To migrate, create a new bot on QQ Open Platform without configuring a callback URL, then switch the Connection Mode to WebSocket under Connection options on the Connect tab.',
+  'channel.wecom.botId': 'BotID',
+  'channel.wecom.botIdHint': 'The BotID of your WeCom AI bot (API mode).',
+  'channel.wecom.secret': 'Secret',
+  'channel.wecom.secretHint':
+    "The bot's long-connection Secret. Connecting the same bot anywhere else disconnects it here.",
   'channel.wechat.description':
     'Connect this agent to WeChat via iLink Bot for private and group chats.',
   'channel.wechatQrExpired': 'QR code expired. Please refresh to get a new one.',
@@ -736,6 +751,7 @@ export default {
   'channel.records.column.score': 'Score',
   'channel.records.judge.addressed': 'Is it meant for the bot',
   'channel.records.judge.duty': 'Is it within its duties',
+  'channel.records.judge.routing': 'Should it be the one to answer',
   'channel.records.judge.allow': 'over the threshold',
   'channel.records.judge.deny': 'under the threshold',
   'channel.records.judge.hint': '{{judge}}: {{verdict}}',

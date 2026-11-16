@@ -174,6 +174,8 @@ export class GatewayHttpClient {
   async executeMcpCall(mcpCall: {
     apiName: string;
     arguments: string;
+    /** The device's client that runs the call; omitted, `resolveClientKinds` decides. */
+    clientKinds?: DeviceClient[];
     deviceId?: string;
     identifier: string;
     params: GatewayMcpParams;
@@ -181,9 +183,9 @@ export class GatewayHttpClient {
     userId: string;
     workspaceId?: string;
   }): Promise<DeviceToolCallResult> {
-    const { deviceId, timeout, userId, workspaceId, ...toolCall } = mcpCall;
+    const { clientKinds, deviceId, timeout, userId, workspaceId, ...toolCall } = mcpCall;
     return this.postToolCall(
-      { deviceId, timeout, userId, workspaceId },
+      { clientKinds, deviceId, timeout, userId, workspaceId },
       { ...toolCall, type: 'mcp' },
     );
   }
@@ -319,6 +321,7 @@ export class GatewayHttpClient {
     /** Resolved `lh hetero exec` wrapper args. */
     args?: string[];
     claudeAccountRouting?: AgentRunRequestMessage['claudeAccountRouting'];
+    claudeCodeEntrypoint?: string;
     /** Restricts the run to connections of these clients; omitted means any client. */
     clientKinds?: DeviceClient[];
     cwd?: string;
@@ -375,10 +378,15 @@ export class GatewayHttpClient {
    * (e.g. `desktop` alongside `cli`). A gateway that predates the hint ignores
    * it and picks by its own channel priority, so callers must still handle an
    * answer from another channel.
+   *
+   * `clientKinds`, when given, replaces the per-method answer of
+   * `resolveClientKinds` — e.g. to keep a terminal session's calls on the
+   * client that created it.
    */
   async invokeRpc<T = unknown>(
     params: {
       channel?: string;
+      clientKinds?: DeviceClient[];
       deviceId?: string;
       timeout?: number;
       userId: string;
@@ -394,7 +402,9 @@ export class GatewayHttpClient {
       '/api/device/rpc',
       {
         channel: params.channel,
-        clientKinds: this.clientKindsFor({ kind: 'rpc', method: rpc.method }),
+        clientKinds: params.clientKinds?.length
+          ? params.clientKinds
+          : this.clientKindsFor({ kind: 'rpc', method: rpc.method }),
         deviceId: params.deviceId,
         method: rpc.method,
         params: rpc.params,

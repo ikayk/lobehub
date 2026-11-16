@@ -1,6 +1,7 @@
 'use client';
 
-import { ActionIcon, Button, createStaticStyles, Flexbox } from '@lobehub/ui';
+import { ActionIcon, Button, Flexbox, Text } from '@lobehub/ui';
+import * as stylex from '@stylexjs/stylex';
 import isEqual from 'fast-deep-equal';
 import { ArrowLeft, ChevronLeft } from 'lucide-react';
 import { memo, useCallback, useEffect, useState } from 'react';
@@ -27,32 +28,34 @@ export interface SelectedTool {
   type: ToolDetailType;
 }
 
-const styles = createStaticStyles(({ css }) => ({
-  detail: css`
-    overflow-y: auto;
-    flex: 1;
-  `,
-  page: css`
-    overflow-y: auto;
-    display: flex;
-    flex: 1;
-    justify-content: center;
-
-    height: 100%;
-  `,
-  pageBody: css`
-    display: flex;
-    flex-direction: column;
-    width: 100%;
-    max-width: 960px;
-  `,
-  root: css`
-    overflow: hidden;
-    display: flex;
-    flex: 1;
-    height: 100%;
-  `,
-}));
+const styles = stylex.create({
+  detail: { overflowY: 'auto', flex: '1' },
+  page: {
+    overflowY: 'auto',
+    display: 'flex',
+    flex: '1',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    height: '100%',
+    paddingInline: '12px',
+  },
+  /**
+   * The connector list insets its rows and intro 12px, so the body is 12px wider
+   * than the shared 1024px settings column on each side: text then lines up with
+   * every other settings tab, and the bottom space matches their 128px. The body
+   * grows with its content (the page aligns it to the top instead of stretching it
+   * to the scroll box), otherwise the list overflows it and the bottom padding is lost.
+   */
+  pageBody: {
+    display: 'flex',
+    flexDirection: 'column',
+    width: '100%',
+    maxWidth: '1048px',
+    minHeight: '100%',
+    paddingBlockEnd: '104px',
+  },
+  root: { overflow: 'hidden', display: 'flex', flex: '1', height: '100%' },
+});
 
 interface ToolSettingsProps {
   /**
@@ -177,7 +180,7 @@ export const ToolSettings = memo<ToolSettingsProps>(({ viewMode }) => {
   // full-width instead of a 300px list squeezing the detail.
   if (mobile)
     return stackedSelected ? (
-      <Flexbox className={styles.detail}>
+      <Flexbox className={stylex.props(styles.detail).className}>
         <Flexbox horizontal align={'center'} paddingBlock={4} paddingInline={8}>
           <ActionIcon icon={ChevronLeft} title={t('back')} onClick={closeStackedDetail} />
         </Flexbox>
@@ -188,7 +191,7 @@ export const ToolSettings = memo<ToolSettingsProps>(({ viewMode }) => {
         />
       </Flexbox>
     ) : (
-      <div className={styles.root}>
+      <div {...stylex.props(styles.root)}>
         <LeftPanel
           fullWidth
           viewMode={viewMode}
@@ -203,9 +206,11 @@ export const ToolSettings = memo<ToolSettingsProps>(({ viewMode }) => {
   if (stacked)
     return (
       <>
-        <NavHeader />
-        <div className={styles.page}>
-          <div className={styles.pageBody}>
+        <NavHeader styles={{ center: { alignItems: 'center' } }}>
+          <Text weight={500}>{t('tab.connector', { ns: 'setting' })}</Text>
+        </NavHeader>
+        <div {...stylex.props(styles.page)}>
+          <div {...stylex.props(styles.pageBody)}>
             {stackedSelected ? (
               <>
                 <Flexbox horizontal align={'center'} paddingBlock={12} paddingInline={4}>
@@ -236,7 +241,7 @@ export const ToolSettings = memo<ToolSettingsProps>(({ viewMode }) => {
   return (
     <>
       <NavHeader />
-      <div className={styles.root}>
+      <div {...stylex.props(styles.root)}>
         <LeftPanel
           selectedIdentifier={selected?.identifier}
           viewMode={viewMode}
@@ -245,7 +250,7 @@ export const ToolSettings = memo<ToolSettingsProps>(({ viewMode }) => {
         />
 
         {selected && (
-          <div className={styles.detail}>
+          <div {...stylex.props(styles.detail)}>
             <SkillDetail
               identifier={selected.identifier}
               type={selected.type}

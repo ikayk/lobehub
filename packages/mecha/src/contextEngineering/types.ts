@@ -1,6 +1,7 @@
 import type {
   AgentBuilderContext,
   AgentContextDocument,
+  AgentDocumentChangesByMessage,
   AgentGroupConfig,
   AgentManagementContext,
   BotPlatformContext,
@@ -23,6 +24,7 @@ import type {
 } from '@lobechat/context-engine';
 import type { AgentIdentityContext } from '@lobechat/prompts';
 import type {
+  AgentAccountContext,
   ExpertiseContextSnapshot,
   RuntimeAdditionalContextFragment,
   RuntimeInitialContext,
@@ -41,6 +43,8 @@ export type ContextVariables = Record<string, string | (() => string)>;
  * host (`resolveAgentConfig`) and frozen.
  */
 export interface ContextAgentSnapshot {
+  /** Change notes for the documents index, keyed by the user message each belongs to. */
+  documentChanges?: AgentDocumentChangesByMessage;
   /** Agent documents the agent may consult. */
   documents?: AgentContextDocument[];
   enableHistoryCount?: boolean;
@@ -78,6 +82,7 @@ export interface ContextRunSnapshot {
    */
   enableAgentMode?: boolean;
   enableExpertise?: boolean;
+  enableMcpAppContext?: boolean;
   expertise?: ExpertiseContextSnapshot;
   /** maxSteps exceeded: tools are stripped and a summary prompt is injected. */
   forceFinish?: boolean;
@@ -129,6 +134,12 @@ export interface ContextWorldSnapshot {
  * state. The host decides how to fetch them; the core only places them.
  */
 export interface ContextStepSnapshot {
+  /**
+   * The agent's own accounts and inbox, gathered fresh this step. First-class
+   * identity state — it is what lets the runtime stop carrying an always-on
+   * mailbox tool.
+   */
+  agentAccountContext?: AgentAccountContext;
   agentBuilderContext?: AgentBuilderContext;
   agentManagementContext?: AgentManagementContext;
   documentReferences?: DocumentReferenceItem[];
