@@ -4,6 +4,7 @@ import { type AgentConfigSnapshot, resolveAgentConfig } from '@lobechat/mecha';
 import type { AgentModelOverride, LobeAgentAgencyConfig, MessageMapScope } from '@lobechat/types';
 import {
   applyTopicModelToHeterogeneousProvider,
+  getAutoPluginIds,
   getDisabledPluginIds,
   resolveAgentAgencyConfig,
   resolveHeterogeneousModelOverride,
@@ -57,6 +58,8 @@ export interface ResolvedRunAgentConfig {
   agentSlug?: string | null;
   /** Agent id stamped on the assistant row (conversation-aware). */
   assistantAgentId: string;
+  /** Library skills the agent set to `auto`, captured before pinned-id collapse. */
+  autoSkillIds: string[];
   canManageAgent: boolean;
   /** Agent id stamped on the user row (conversation-aware). */
   conversationAgentId: string;
@@ -70,7 +73,7 @@ export interface ResolvedRunAgentConfig {
   resolvedAgentId: string;
 }
 
-interface WorkspaceMemberOverrides {
+export interface WorkspaceMemberOverrides {
   device?: Pick<LobeAgentAgencyConfig, 'boundDeviceId' | 'executionTarget'>;
   mode?: boolean;
   model?: AgentModelOverride;
@@ -82,8 +85,8 @@ interface WorkspaceMemberOverrides {
  * never mutate the shared Agent config. Losing them is non-fatal: execution
  * falls back to the shared row.
  */
-const loadWorkspaceMemberOverrides = async (
-  deps: ResolveRunAgentConfigDeps,
+export const loadWorkspaceMemberOverrides = async (
+  deps: Pick<ResolveRunAgentConfigDeps, 'db' | 'userId' | 'workspaceId'>,
   agentId: string,
 ): Promise<WorkspaceMemberOverrides> => {
   if (!deps.workspaceId) return {};
@@ -112,9 +115,9 @@ const loadWorkspaceMemberOverrides = async (
  * fail-closed: applying member policy is safer than accidentally granting
  * shared-config semantics.
  */
-const resolveCanManage = async (
-  deps: ResolveRunAgentConfigDeps,
-  agentConfig: AgentConfigWithId,
+export const resolveCanManage = async (
+  deps: Pick<ResolveRunAgentConfigDeps, 'db' | 'userId'>,
+  agentConfig: Pick<AgentConfigWithId, 'userId' | 'visibility'>,
   agentWorkspaceId: string | undefined,
   isPublicWorkspaceAgent: boolean,
 ): Promise<boolean> => {
@@ -262,6 +265,9 @@ export const resolveRunAgentConfig = async (
   // collapses plugins to pinned ids: they later filter the auto-discovery
   // candidate pool so a disabled plugin can't be rediscovered.
   const disabledPluginIds = getDisabledPluginIds(row.plugins);
+  // Same for the explicit `auto` entries: a library skill is opt-in per agent,
+  // so the skill pool needs the ones this agent opted into without pinning.
+  const autoSkillIds = getAutoPluginIds(row.plugins);
 
   // One mutable object from here on — later stages append to `systemRole` and
   // `createOperation` must see those writes.
@@ -363,6 +369,7 @@ export const resolveRunAgentConfig = async (
     agentConfig,
     agentSlug: row.slug,
     assistantAgentId,
+    autoSkillIds,
     canManageAgent,
     conversationAgentId,
     disabledPluginIds,

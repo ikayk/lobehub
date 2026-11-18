@@ -57,6 +57,7 @@ const makeCtx = (connectors: any[], tools: any[], { agentVisible = true } = {}) 
   ({
     agentModel: { existsById: vi.fn().mockResolvedValue(agentVisible) },
     connectorModel: {
+      getLinkModel: () => ({ listByConnectorIds: async () => [] }),
       queryByIdentifiers: vi.fn().mockResolvedValue(connectors),
       resolveByIdentifiers: vi.fn().mockResolvedValue(connectors),
     },
@@ -307,6 +308,29 @@ describe('callConnectorToolById', () => {
         }),
       }),
     );
+  });
+
+  it('asks the owner to reconnect a terminal OAuth account before sending a tool call', async () => {
+    vi.mocked(ensureFreshConnectorToken).mockResolvedValueOnce({
+      ...connector,
+      credentials: {
+        accessToken: 'expired',
+        refreshState: { status: 'reconnect_required' },
+        type: 'oauth2',
+      },
+    });
+
+    const result = await callConnectorToolById(
+      { identifier: 'my-conn', toolName: 'do_thing' },
+      makeCtx([connector], [tool()]),
+    );
+
+    expect(result).toMatchObject({
+      content: expect.stringContaining("reconnect 'my-conn'"),
+      error: { type: 'AUTHORIZATION_ERROR' },
+      success: false,
+    });
+    expect(mcpService.callTool).not.toHaveBeenCalled();
   });
 
   it('schedules a background tool-list refresh for the connector', async () => {

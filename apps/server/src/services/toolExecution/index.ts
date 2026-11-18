@@ -4,6 +4,8 @@ import { type ChatToolPayload, type DeviceClient } from '@lobechat/types';
 import { isDeviceOnlyMcpEndpoint, shouldConnectViaDevice } from '@lobechat/utils/mcpEndpoint';
 import debug from 'debug';
 
+import { ConnectorModel } from '@/database/models/connector';
+import { ConnectorToolModel } from '@/database/models/connectorTool';
 import { ConnectorToolPermission } from '@/database/schemas';
 import { type CloudMCPParams, type HttpMCPClientParams, type StdioMCPParams } from '@/libs/mcp';
 import {
@@ -11,6 +13,10 @@ import {
   getConnectorToolPermission,
 } from '@/libs/mcp/connectorPermissionCheck';
 import { isMCPSSRFBlockedError } from '@/libs/mcp/ssrf';
+import { createMCPError } from '@/libs/mcp/types';
+import { KeyVaultsGateKeeper } from '@/server/modules/KeyVaultsEncrypt';
+import { resolveLinkedCall } from '@/server/services/connector/links';
+import { buildConnectorMcpParams } from '@/server/services/connector/sync';
 import { deviceGateway } from '@/server/services/deviceGateway';
 import { resolveMcpClientKinds } from '@/server/services/deviceGateway/deviceChannels';
 import { resolveDeviceDispatchAuthorizationFailure } from '@/server/services/deviceGateway/dispatchAuthorization';
@@ -274,7 +280,8 @@ export class ToolExecutionService {
     payload: ChatToolPayload,
     context: ToolExecutionContext,
   ): Promise<ToolExecutionResult> {
-    const { identifier, apiName, arguments: args } = payload;
+    const { identifier, apiName } = payload;
+    let args = payload.arguments;
 
     log('Executing MCP tool: %s:%s', identifier, apiName);
 
@@ -293,7 +300,8 @@ export class ToolExecutionService {
     }
 
     // Extract MCP params from manifest (stored in customParams.mcp in LobeTool)
-    const mcpParams = (manifest as any).mcpParams;
+    let mcpParams = (manifest as any).mcpParams;
+    let linkName: string | undefined;
     if (!mcpParams) {
       log('MCP configuration not found in manifest for: %s ', identifier);
       return {
@@ -317,10 +325,11 @@ export class ToolExecutionService {
 
     // Agent Share visitor runs execute with the CREATOR's identity, so a
     // device-only MCP would access the creator's device or private network
-    // on a visitor's behalf. The tool-set gate already drops
-    // these manifests (`applyShareGateToToolSet`); this is the unbypassable
-    // dispatch-site check, mirroring `isShareBlockedBuiltinDispatch`.
-    if (context.agentShareVisitor && isDeviceOnlyMcp) {
+    // on a visitor's behalf — allowed only under the share's device grant.
+    // The tool-set gate already drops these manifests
+    // (`applyShareGateToToolSet`); this is the unbypassable dispatch-site
+    // check, mirroring `isShareBlockedBuiltinDispatch`.
+    if (context.agentShareVisitor && !context.agentShareVisitor.canUseDevice && isDeviceOnlyMcp) {
       log('Share gate blocked device-only MCP dispatch: %s:%s', identifier, apiName);
       const message = `MCP server '${identifier}' runs on the agent owner's own machine and is not available in shared conversations.`;
       return {
@@ -331,6 +340,76 @@ export class ToolExecutionService {
     }
 
     try {
+      if (
+        (manifest as { connectorReauthorizationRequired?: boolean })
+          .connectorReauthorizationRequired
+      ) {
+        throw createMCPError('AUTHORIZATION_ERROR', 'Reconnect this connector to continue.');
+      }
+      const marker = (manifest as { connectorLinks?: { connectorId: string; param: string } })
+        .connectorLinks;
+      if (marker) {
+        if (!context.serverDB || !context.userId)
+          throw new Error(
+            'Connector account resolution requires an authenticated execution context',
+          );
+        const gateKeeper = await KeyVaultsGateKeeper.initWithEnvKey();
+        const workspaceId = await resolveRunWorkspaceId(context);
+        const connectorModel = new ConnectorModel(
+          context.serverDB,
+          context.userId,
+          workspaceId,
+          gateKeeper,
+        );
+        // The marker rides in a manifest, and a plugin row can carry any
+        // manifest. Only the connector this call's identifier resolves to for
+        // the run (the one the permission gate checked) may lend its accounts,
+        // and only to a tool it serves and has not disabled.
+        const [connector] = await connectorModel.resolveByIdentifiers(
+          [identifier],
+          context.agentId,
+        );
+        if (!connector || connector.id !== marker.connectorId || !connector.isEnabled)
+          throw new Error(
+            'Connector is no longer available. Ask the user to connect an account in Settings > Connectors.',
+          );
+        const tool = (
+          await new ConnectorToolModel(
+            context.serverDB,
+            context.userId,
+            workspaceId,
+          ).queryByConnector(connector.id)
+        ).find((item) => item.toolName === apiName);
+        if (!tool) throw new Error(`Connector '${identifier}' has no tool named '${apiName}'.`);
+        if (tool.permission === ConnectorToolPermission.disabled)
+          return buildBlockedToolResponse(apiName);
+        const currentEndpoint = buildConnectorMcpParams({ ...connector, credentials: null });
+        if (
+          context.agentShareVisitor &&
+          !context.agentShareVisitor.canUseDevice &&
+          isDeviceOnlyMcpEndpoint(currentEndpoint)
+        ) {
+          const message = `MCP server '${identifier}' runs on the agent owner's own machine and is not available in shared conversations.`;
+          return {
+            content: message,
+            error: { code: 'SHARE_GATE_BLOCKED', message },
+            success: false,
+          };
+        }
+        const resolved = await resolveLinkedCall(
+          {
+            connector,
+            argsStr: args,
+            param: marker.param,
+            isShareVisitor: !!context.agentShareVisitor,
+          },
+          { connectorModel },
+        );
+        args = resolved.argsStr;
+        payload = { ...payload, arguments: args };
+        linkName = resolved.linkName;
+        mcpParams = buildConnectorMcpParams(resolved.connector);
+      }
       // Check if this is a cloud MCP endpoint
       if (mcpParams.type === 'cloud') {
         return await this.executeCloudMCPTool(payload, context, mcpParams);
@@ -381,7 +460,16 @@ export class ToolExecutionService {
             success: false,
           };
         }
-        return await this.executeMcpViaDevice(payload, context, mcpParams, tunnelTarget);
+        const result = await this.executeMcpViaDevice(payload, context, mcpParams, tunnelTarget);
+        if (!result.success && linkName) {
+          // Device transports may serialize a provider error to plain text.
+          // Preserve its meaning while retaining the selected account boundary.
+          return {
+            ...result,
+            content: `The call using account '${linkName}' failed. Do not switch to another account without the user's consent. ${result.content}`,
+          };
+        }
+        return result;
       }
 
       // HTTP MCP endpoints can execute through the server-side MCP service.
@@ -407,6 +495,7 @@ export class ToolExecutionService {
       if (isMcpAuthorizationError(error)) {
         const content = buildMcpAuthorizationErrorContent(identifier, {
           isShareVisitor: !!context.agentShareVisitor,
+          linkName,
         });
         return {
           content,
