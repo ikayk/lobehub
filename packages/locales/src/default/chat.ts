@@ -5,25 +5,6 @@ export default {
   'directMention.progress.usingTool': 'Using {{name}}…',
   'directMention.progress.viewFullRecord': 'View full record',
   'sharePage.app.linkCopied': 'Link copied',
-  'heteroAgent.antigravityQuota.title': 'Antigravity quota',
-  'heteroAgent.antigravityQuota.tooltip': 'View Antigravity model quotas',
-  'heteroAgent.antigravityQuota.fiveHour': '5 hours',
-  'heteroAgent.antigravityQuota.remainingAmount': '{{amount}} remaining',
-  'heteroAgent.antigravityQuota.unknown': 'Unknown',
-  'heteroAgent.antigravityQuota.disabled': 'Unavailable',
-  'heteroAgent.antigravityQuota.resetUnconfirmed':
-    'Reset time reached. Refresh to check the latest quota.',
-  'heteroAgent.antigravityQuota.stale': 'Showing the last query. Refresh to confirm current quota.',
-  'heteroAgent.antigravityQuota.authRequired':
-    'Sign in with agy on the execution device, then try again.',
-  'heteroAgent.antigravityQuota.cliNotFound':
-    'Antigravity CLI was not found on this device. Install agy, then refresh.',
-  'heteroAgent.antigravityQuota.unsupported':
-    'Update agy to a version that supports structured quota queries, then refresh.',
-  'heteroAgent.antigravityQuota.timeout':
-    'The quota query timed out. Check the device connection and try again.',
-  'heteroAgent.antigravityQuota.error':
-    'Could not query Antigravity quota. Check the device and try again.',
 
   'sharePage.app.open': 'Open app',
   'sharePage.app.help': 'Trouble opening the app?',
@@ -345,8 +326,8 @@ export default {
   'agentProfile.creator': 'Creator',
   'agentProfile.files_one': '{{count}} file',
   'agentProfile.files_other': '{{count}} files',
-  'agentProfile.knowledgeBases_one': '{{count}} library',
-  'agentProfile.knowledgeBases_other': '{{count}} libraries',
+  'agentProfile.knowledgeBases_one': '{{count}} knowledge base',
+  'agentProfile.knowledgeBases_other': '{{count}} knowledge bases',
   'agentProfile.runtime': 'Runs on {{name}}',
   'agentProfile.skills_one': '{{count}} skill',
   'agentProfile.skills_other': '{{count}} skills',
@@ -394,10 +375,14 @@ export default {
     'Are you sure you want to uncompress? This will restore the original messages.',
   'compression.collapsed': 'Compressed {{turns}} earlier turns · View summary',
   'compression.collapsedUnknown': 'Compressed earlier history · View summary',
+  'compression.compacted': 'Context compressed',
+  'compression.compacting': 'Compressing context',
+  'compression.compactingSlow': 'This may take a few minutes',
   'compression.emptySummary': 'The model returned an empty summary',
   'compression.failed': 'Context compression failed, original messages kept',
   'compression.failedReason': 'Summary generation failed: {{reason}}',
   'compression.history': 'Original conversation',
+  'compression.loadEarlier': 'Show earlier messages',
   'compression.summary': 'History summary',
   'confirmClearCurrentMessages':
     'You are about to clear the current conversation messages. Once cleared, they cannot be retrieved. Please confirm your action.',
@@ -815,6 +800,9 @@ export default {
   'heteroAgent.claudeSdkRuntime.state.starting': 'SDK starting',
   'heteroAgent.claudeSdkRuntime.tooltip': '{{state}}. Active background tasks: {{count}}.',
   'heteroAgent.codexQuota.calendar.title': 'Codex usage calendar',
+  'heteroAgent.codexQuota.creditsBalance': 'Credits balance',
+  'heteroAgent.codexQuota.creditsUnlimited': 'Unlimited',
+  'heteroAgent.codexQuota.creditsUsdEstimate': '≈ {{amount}}',
   'heteroAgent.codexQuota.doesNotExpire': 'Does not expire',
   'heteroAgent.codexQuota.errorConnection':
     "Couldn't reach the Codex quota endpoint. Check your network or LobeHub proxy settings.",
@@ -910,6 +898,8 @@ export default {
   'heteroAgent.modelSelector.speed.unavailable':
     'Unavailable for this model on the execution device',
   'heteroAgent.modelSelector.speed': 'Speed',
+  'heteroAgent.cliModel.antigravityAuthRequired':
+    'Sign in with agy on the execution device, then try again.',
   'heteroAgent.cliModel.ariaLabel': '{{name}} model: {{model}}',
   'heteroAgent.cliModel.cliNotFound': 'The CLI is not installed on the target device.',
   'heteroAgent.cliModel.defaultDesc': 'Use the default model configured in {{name}}',
@@ -982,8 +972,11 @@ export default {
   'heteroAgent.executionTarget.sandboxUnsupported':
     '{{name}} currently runs only on a local or connected device',
   'heteroAgent.executionTarget.auto': 'Auto',
+  'heteroAgent.executionTarget.autoAgentPicks': 'Auto · Agent picks',
   'heteroAgent.executionTarget.autoDesc':
     'Use an online device automatically, picking one when several are available',
+  'heteroAgent.executionTarget.autoNoDevice': 'Auto · No device online',
+  'heteroAgent.executionTarget.autoOn': 'Auto · {{name}}',
   'heteroAgent.executionTarget.fixedTip':
     'The execution environment is fixed in the Agent Profile and cannot be switched while chatting.',
   'heteroAgent.executionTarget.infoTooltip':
@@ -1013,8 +1006,6 @@ export default {
   'heteroAgent.executionTarget.onlineConnections_one': 'Online · {{count}} connection',
   'heteroAgent.executionTarget.onlineConnections_other': 'Online · {{count}} connections',
   'heteroAgent.executionTarget.presenceChecking': 'Checking status…',
-  'heteroAgent.executionTarget.projectDevicesHint':
-    "Only devices with this project's working directory are listed. Add a directory for another device in the project settings.",
   'heteroAgent.executionTarget.switchProjectTopic.content':
     'This topic will run in the project directory "{{directory}}" on {{device}}. Its next turn starts a fresh session there.',
   'heteroAgent.executionTarget.reconnect': 'Reconnect',
@@ -1024,15 +1015,8 @@ export default {
   'heteroAgent.executionTarget.personalGroup': 'Private Devices',
   'heteroAgent.executionTarget.sandbox': 'Cloud Sandbox',
   'heteroAgent.executionTarget.sandboxDesc': 'Runs in the cloud, no machine needed',
-  'heteroAgent.executionTarget.persistentSandbox': 'Persistent Sandbox',
-  'heteroAgent.executionTarget.persistentSandboxDesc':
-    'Keeps results and work on your drive, for everyday tasks',
-  'heteroAgent.executionTarget.temporarySandbox': 'Temporary Sandbox',
-  'heteroAgent.executionTarget.temporarySandboxDesc':
-    'Discarded after use, for coding and one-off data processing',
   'heteroAgent.executionTarget.workspaceGroup': 'Workspace Devices',
   'heteroAgent.executionTarget.myDevicesGroup': 'My devices',
-  'heteroAgent.executionTarget.sandboxGroup': 'Sandboxes',
   'heteroAgent.executionTarget.downloadDesktop': 'Get Desktop App',
   'heteroAgent.executionTarget.downloadDesktopDesc': 'Run agents with access to your computer',
   'heteroAgent.executionTarget.downloadDesktopTitle': 'Get the desktop app',
@@ -1058,15 +1042,23 @@ export default {
   'inbox.title': 'Lobe AI',
   'input.agentModeUnsupportedModel':
     'The current model doesn’t support agentic tool calling. Switch to a model with agent capability for the best experience.',
-  'input.agentRunFeeUnfunded.desc':
-    'Each agent run carries a fee, even on your own API key. Top up or upgrade your plan, then send again.',
+  'input.agentRunFeeUnfunded.desc': 'Top up or upgrade your plan, then send again.',
   'input.agentRunFeeUnfunded.descOverflow':
-    'Each agent run carries a fee, even on your own API key. Your balance covers it: use your balance, then send again.',
-  'input.agentRunFeeUnfunded.descSubscribe':
-    'Each agent run carries a fee, even on your own API key. Subscribe to a plan, then send again.',
-  'input.agentRunFeeUnfunded.descTopUp':
-    'Each agent run carries a fee, even on your own API key. Top up, then send again.',
+    'Your balance covers this run. Use your balance, then send again.',
+  'input.agentRunFeeUnfunded.descSubscribe': 'Subscribe to a plan, then send again.',
+  'input.agentRunFeeUnfunded.descTopUp': 'Top up, then send again.',
+  'input.agentRunFeeUnfunded.free.desc':
+    'Resets on {{date}}. Upgrade to {{plan}} for model usage and more agent runs.',
+  'input.agentRunFeeUnfunded.free.descNoReset': 'Upgrade to {{plan}} for more usage.',
+  'input.agentRunFeeUnfunded.free.descOwnKey':
+    'Resets on {{date}}. Upgrade to {{plan}} for model usage and more agent runs, or choose {{basic}} ({{price}}/month) if you only use your own API key.',
+  'input.agentRunFeeUnfunded.free.descOwnKeyNoReset':
+    'Upgrade to {{plan}} for more agent runs, or choose {{basic}} ({{price}}/month) if you only use your own API key.',
+  'input.agentRunFeeUnfunded.free.title': 'You’ve used your trial credits',
+  'input.agentRunFeeUnfunded.free.upgrade': 'Upgrade plan',
   'input.agentRunFeeUnfunded.title': 'Not enough credits to pay the agent run fee',
+  'input.agentRunFeeUnfunded.titleSwitchToAuto':
+    'Usage is used up. Switch to Auto Model to continue',
   'input.agentSlugMoved':
     'This link now opens a different agent. Switching to it — try again once it opens. Your draft is kept.',
   'input.agentSlugUnconfirmed':
@@ -1128,9 +1120,7 @@ export default {
   'inputQueue.edit': 'Edit',
   'inputQueue.enqueueRejected': 'Queue is full. Try again after the current run finishes.',
   'inputQueue.queuedHint': 'Sends when the current step finishes',
-  'inputQueue.queuedMergeHint': 'Merged and sent when the current step finishes',
   'inputQueue.queuedRunEndHint': 'Sends when the current run finishes',
-  'inputQueue.queuedRunEndMergeHint': 'Merged and sent when the current run finishes',
   'inputQueue.queuedOneByOneHint': 'Sent one at a time after the current run finishes',
   'inputQueue.steerDeliveryUnknownHint':
     'Couldn’t confirm the agent got this. Send it again or delete it',
@@ -1150,20 +1140,20 @@ export default {
   'inviteMembers': 'Invite members',
   'knowledgeBase.all': 'All Content',
   'knowledgeBase.allFiles': 'All Files',
-  'knowledgeBase.allLibraries': 'All Libraries',
+  'knowledgeBase.allLibraries': 'All Knowledge Bases',
   'knowledgeBase.disabled':
-    'Library chat isn’t available in this deployment. Switch to a server-side database, or use {{cloud}}.',
+    'Knowledge base chat isn’t available in this deployment. Switch to a server-side database, or use {{cloud}}.',
   'knowledgeBase.library.action.add': 'Add',
   'knowledgeBase.library.action.added': 'Added',
   'knowledgeBase.library.action.detail': 'Details',
   'knowledgeBase.library.action.remove': 'Remove',
-  'knowledgeBase.library.title': 'Files / Libraries',
+  'knowledgeBase.library.title': 'Files / Knowledge Bases',
   'knowledgeBase.files': 'Files',
-  'knowledgeBase.libraries': 'Libraries',
+  'knowledgeBase.libraries': 'Knowledge Bases',
   'knowledgeBase.picker.title': 'Attach Knowledge',
-  'knowledgeBase.picker.tabs.library': 'Libraries',
+  'knowledgeBase.picker.tabs.library': 'Knowledge Bases',
   'knowledgeBase.picker.tabs.file': 'Files',
-  'knowledgeBase.picker.searchLibrary': 'Search libraries',
+  'knowledgeBase.picker.searchLibrary': 'Search knowledge bases',
   'knowledgeBase.picker.searchFile': 'Search files',
   'knowledgeBase.picker.sort.updatedAt': 'Recently updated',
   'knowledgeBase.picker.sort.createdAt': 'Recently created',
@@ -1171,15 +1161,15 @@ export default {
   'knowledgeBase.picker.sort.nameDesc': 'Name Z–A',
   'knowledgeBase.picker.noMatch': 'Nothing matches your search',
   'knowledgeBase.picker.libraryEmpty':
-    'No libraries yet. Create one, then add documents to it in Resources.',
-  'knowledgeBase.picker.createLibrary': 'Create library',
+    'No knowledge bases yet. Create one, then add documents to it in Library.',
+  'knowledgeBase.picker.createLibrary': 'Create knowledge base',
   'knowledgeBase.picker.fileEmpty':
-    'No documents to attach yet. Upload them in Resources first; images, audio and video can’t be searched.',
-  'knowledgeBase.related.browse': 'Choose Files / Libraries',
-  'knowledgeBase.related.empty': 'No related files or libraries',
-  'knowledgeBase.relativeFilesOrLibraries': 'Related Files/Libraries',
-  'knowledgeBase.title': 'Library',
-  'knowledgeBase.uploadGuide': "Uploaded files can be viewed in the 'Resources' section.",
+    'No documents to attach yet. Upload them in Library first; images, audio and video can’t be searched.',
+  'knowledgeBase.related.browse': 'Choose Files / Knowledge Bases',
+  'knowledgeBase.related.empty': 'No related files or knowledge bases',
+  'knowledgeBase.relativeFilesOrLibraries': 'Related Files/Knowledge Bases',
+  'knowledgeBase.title': 'Knowledge Base',
+  'knowledgeBase.uploadGuide': 'Uploaded files can be viewed in Library.',
   'knowledgeBase.viewMore': 'View More',
   'memberProfile.email': 'Email',
   'memberProfile.jobTitle': 'Job title',
@@ -1346,6 +1336,7 @@ export default {
     'Time To First Token (TTFT). This refers to the time interval from when you send a message to when the client receives the first Token.',
   'messages.tokenDetails.title': 'Generation Details',
   'messages.tokenDetails.total': 'Total Consumption',
+  'messages.tokenDetails.unit': 'tokens',
   'minimap.emptyPreview': '(No text content)',
   'minimap.jumpToMessage': 'Jump to message {{index}}',
   'minimap.nextMessage': 'Next message',
@@ -1796,9 +1787,12 @@ export default {
   'textSelection.quote': 'Quote',
   'pin': 'Pin',
   'pinOff': 'Unpin',
-  'pinForTeam': 'Pin for team',
-  'pinForTeamForbidden': 'Only workspace owners and admins can change team pins',
-  'unpinForTeam': 'Unpin for team',
+  'recommendAgent': 'Add to recommended agents',
+  'recommendAgentSuccess':
+    'Added to recommended agents. New members will start with it in their sidebar',
+  'recommendAgentForbidden': 'Only workspace owners and admins can change recommended agents',
+  'unrecommendAgent': 'Remove from recommended agents',
+  'unrecommendAgentSuccess': 'Removed from recommended agents',
   'rag.referenceChunks': 'Reference Source',
   'rag.userQuery.actions.delete': 'Delete Query Rewrite',
   'rag.userQuery.actions.regenerate': 'Regenerate Query',
@@ -1829,17 +1823,10 @@ export default {
   'gatewayMode.cardTitle': 'Agent Gateway Mode',
   'gatewayMode.desc':
     "Run agents in the cloud through LobeHub's Agent Gateway. Tasks keep running even after you close the page.",
-  'sandboxStorage.ephemeral': 'Temporary working directory',
   'sandboxStorage.persistentUpsell': 'Persistent working directory',
   'sandboxStorage.setUpEnvironmentDesc': 'A persistent directory lives in an environment',
   'sandboxStorage.setUpEnvironment': 'Set up an environment',
   'sandboxStorage.manage': 'Manage',
-  // The menu lists environments: a person picks the environment, and which
-  // copy (instance) of it the conversation lands in is only asked about when
-  // there is more than one. "Copy" is the product's word for an instance.
-  'sandboxStorage.pickerTitle': 'Environment',
-  'sandboxStorage.pickerInfoTooltip':
-    'An environment describes what a run needs around it — files, or repositories, setup and variables. Conversations run inside one of its copies and keep what they leave there; a second copy only appears when two conversations need the same environment at once.',
   'sandboxStorage.kind.files': 'Files',
   'sandboxStorage.kind.code': 'Code',
   'sandboxStorage.copies': 'Copies',
@@ -2172,9 +2159,10 @@ export default {
   'tab.groupProfile': 'Group Profile',
   'tab.backToChat': 'Back to chat',
   'tab.group.advanced': 'Advanced',
+  'tab.group.growth': 'Growth',
   'tab.group.identity': 'Identity',
   'tab.group.shape': 'Shape',
-  'tab.group.setup': 'Configure',
+  'tab.group.setup': 'Capabilities',
   'tab.context': 'Context',
   'tab.engine': 'Engine',
   'tab.environment': 'Environment',
@@ -2529,7 +2517,6 @@ export default {
     'Stops once total spend reaches this amount; leave blank for no cap.',
   'createGoal.costBudgetLabel': 'Cost budget',
   'createGoal.costBudgetPlaceholder': 'No cap',
-  'createGoal.createFailed': 'Failed to create goal',
   'createGoal.back': 'Back',
   'createGoal.agentsHint':
     'The main agent plans and supervises the goal; tasks go to the executor, or to the main agent when none is chosen.',
@@ -2537,6 +2524,8 @@ export default {
   'createGoal.budgetTitle': 'Budget',
   'createGoal.contextLabel': 'Context for the Agent',
   'createGoal.contextHint': 'Add constraints, source material, or anything the Agent should know',
+  'createGoal.createFailedRetry':
+    "Couldn't create the goal. Your plan is kept, check your connection and try again.",
   'createGoal.criterionPlaceholder': 'Describe a result that can be clearly checked',
   'createGoal.criteriaHint': 'Review and edit these before the goal starts',
   'createGoal.criteriaTitle': 'Acceptance criteria',
@@ -2579,7 +2568,8 @@ export default {
   'createTask.assignee': 'Agent',
   'createTask.member': 'Assignee',
   'createTask.collapse': 'Hide input',
-  'createTask.createFailed': 'Failed to create task',
+  'createTask.createFailedRetry':
+    "Couldn't create the task. Your draft is kept, check your connection and try again.",
   'createTask.discardConfirm.cancel': 'Keep editing',
   'createTask.discardConfirm.content':
     'The title, instruction and attachments you added will be lost.',
@@ -2838,11 +2828,9 @@ export default {
   'goalProcess.northStar.declare.opLabel': 'Condition',
   'goalProcess.northStar.declare.targetLabel': 'Target value',
   'goalProcess.northStar.declare.submit': 'Declare',
-  'goalProcess.northStar.declare.failed': 'Failed to declare the metric',
   'goalProcess.northStar.record.title': 'Record observation',
   'goalProcess.northStar.record.valueLabel': 'Current value of {{key}}',
   'goalProcess.northStar.record.submit': 'Record',
-  'goalProcess.northStar.record.failed': 'Failed to record the observation',
   'goalProcess.northStar.detail.history': 'Observations ({{count}})',
   'goalProcess.northStar.detail.removed': 'This metric is no longer declared on the goal',
   'goalProcess.northStar.detail.source.agent': 'Recorded by agent',
@@ -3392,6 +3380,10 @@ export default {
   'goalPage.title': 'Overview',
   'goalPage.view.card': 'Cards',
   'goalPage.view.list': 'List',
+  'goalProcess.northStar.declare.failedRetry':
+    "Couldn't declare the metric. Check the key and target, then try again.",
+  'goalProcess.northStar.record.failedRetry':
+    "Couldn't record the observation. Check the value and try again.",
   'goalTurn.authorUser': 'User',
   'goalTurn.continuation': 'Why planning reopened',
   'goalTurn.earlierFeedback': 'Earlier feedback ({{count}})',
@@ -3410,6 +3402,10 @@ export default {
   'goalTurn.trigger.first': 'First turn',
   'goalTurn.trigger.settled': 'Work settled',
   'goalTurn.trigger.takeover': 'Takeover',
+  'heteroAgent.claudeQuota.manage.loginFailedRetry':
+    "Sign-in didn't finish. Click Add account to try again.",
+  'heteroAgent.claudeQuota.manage.switchFailedRetry':
+    "Couldn't switch the account. Check your network and try again.",
   'taskList.activeTasks': 'Active Tasks',
   'taskList.all': 'All tasks',
   'taskList.completedTasks.all': 'All',
@@ -4016,7 +4012,7 @@ export default {
   'workflow.toolDisplayName.showAgentMarketplace': 'Assembled agent team',
   'workflow.toolDisplayName.submitAgentPick': 'Picked agents',
   'workflow.toolDisplayName.searchAgent': 'Searched agents',
-  'workflow.toolDisplayName.searchKnowledgeBase': 'Searched library',
+  'workflow.toolDisplayName.searchKnowledgeBase': 'Searched knowledge base',
   'workflow.toolDisplayName.searchLocalFiles': 'Searched files',
   'workflow.toolDisplayName.searchSkill': 'Searched skills',
   'workflow.toolDisplayName.searchUserMemory': 'Searched memory',
@@ -4075,17 +4071,19 @@ export default {
   'workingPanel.browser.tool.scroll': 'Scrolled page',
   'workingPanel.browser.tool.setViewport': 'Set viewport',
   'workingPanel.browser.tool.snapshot': 'Read page elements',
+  'workingPanel.claudeMemory.copyPath': 'Copy path',
+  'workingPanel.claudeMemory.copyPathSuccess': 'Path copied',
   'workingPanel.claudeMemory.empty.description':
     'Claude Code saves what is worth remembering here as it works in this project.',
   'workingPanel.claudeMemory.empty.title': "Claude hasn't saved anything for this project yet",
-  'workingPanel.claudeMemory.group.feedback': 'Feedback',
-  'workingPanel.claudeMemory.group.index': 'Index',
+  'workingPanel.claudeMemory.group.feedback': 'Your guidance',
   'workingPanel.claudeMemory.group.other': 'Other',
   'workingPanel.claudeMemory.group.project': 'Project',
-  'workingPanel.claudeMemory.group.reference': 'References',
+  'workingPanel.claudeMemory.group.reference': 'External resources',
   'workingPanel.claudeMemory.group.user': 'About you',
-  'workingPanel.claudeMemory.indexHint': 'Loaded at the start of every session',
   'workingPanel.claudeMemory.location': 'Saved in {{path}}',
+  'workingPanel.claudeMemory.more': 'More',
+  'workingPanel.claudeMemory.openIndex': 'Open the MEMORY.md index, loaded into every session',
   'workingPanel.claudeMemory.refresh': 'Refresh',
   'workingPanel.claudeMemory.title': 'Claude Memory',
   'workingPanel.openMenu.configuration': 'Configuration',
@@ -4732,42 +4730,22 @@ export default {
     'The worktree is still being cleaned up. Try sending again in a moment.',
   'worktreeRestore.waiting': 'Waiting for the worktree cleanup to finish before restoring it…',
   'you': 'You',
-  'sandboxDrive.manageEnvironments': 'Settings',
-  'sandboxDrive.openStorage': 'Sandbox Storage',
-  'sandboxEnvironment.none': 'No environment',
-  'sandboxEnvironment.missing': 'Environment unavailable',
-  'sandboxEnvironment.loading': 'Loading environment…',
-  'sandboxDrive.pickerTitle': 'Work location',
-  'sandboxDrive.pickerInfoTooltip':
-    'A temporary directory is cleaned up with the sandbox. A folder on your cloud drive is kept across conversations. An environment is set up before the first command.',
-  'sandboxEnvironment.title': 'Environment',
-  'sandboxEnvironment.hint':
-    'Its repositories are cloned, setup runs and its variables are set before the first command.',
-  'sandboxEnvironment.empty': 'No environments yet. Create one to get started.',
-  'sandboxEnvironment.add': 'New environment',
-  'sandboxEnvironment.loadFailed': "Couldn't load environments",
-  'sandboxEnvironment.retry': 'Retry',
-  'sandboxEnvironment.saveFailed': 'Could not change the environment. Try again.',
   'sandboxDrive.root': 'Root',
-  'sandboxDrive.building': '{{name}} · building',
+  'sandboxOptions.temporary': 'Temporary',
   'sandboxDrive.title': 'Cloud drive',
   'sandboxDrive.browseOther': 'Choose another folder…',
-  'sandboxDrive.environmentBuildingDesc':
-    'Environment directory · building, usable once it finishes',
   'sandboxDrive.fallback.directoryMissing':
     'This folder no longer exists on the drive. Runs use a temporary sandbox until you pick another folder.',
   'sandboxDrive.fallback.instanceUnavailable':
-    'This environment directory can’t be used here any more. Runs use a temporary sandbox until you pick another one.',
+    'This folder can’t be used here any more. Runs use a temporary sandbox until you pick another folder.',
   'sandboxDrive.fallback.rootNotAllowed':
     'The public drive’s root cannot be a working folder. This run will use a temporary sandbox; pick a folder.',
-  'sandboxDrive.fallbackChip.directoryMissing': 'Folder no longer exists',
-  'sandboxDrive.fallbackChip.instanceUnavailable': 'Environment unavailable',
-  'sandboxDrive.fallbackChip.rootNotAllowed': 'Pick a folder',
   'sandboxDrive.fallback.instanceRebuildRequired':
-    'This private environment directory is still on the public drive and needs to be rebuilt on your personal drive. This run will use a temporary sandbox.',
-  'sandboxDrive.fallbackChip.instanceRebuildRequired': 'Rebuild on personal drive',
+    'This private folder is on the public drive and can’t be used there. This run will use a temporary sandbox; pick another folder.',
   'input.costEstimate.hintUsd': 'Estimated cost: about {{amount}}',
   'input.costEstimate.usdPerMillionTokens': '{{amount}} / 1M tokens',
+  'resource.artifacts.history.restoreFailedRetry':
+    "Couldn't restore this revision. Check your network and try again.",
   'taskLabel.add': 'Add labels',
   'taskLabel.anyInGroup': 'Any {{name}}',
   'taskLabel.createFailed': 'Failed to create label',
@@ -4804,5 +4782,11 @@ export default {
   'taskList.find.open': 'Find in view',
   'taskList.find.placeholder': 'Find in view…',
   'taskList.groupBy.labelGroup': 'Label: {{name}}',
-  'sandboxEnvironment.noRepository': 'No repository',
+  'sessionGroup.createFailedRetry':
+    "Couldn't create the category. Check your network and try again.",
+  'shareModal.downloadFailedRetry': "Couldn't download the PDF. Check your network and try again.",
+  'shareModal.generation.updateFailedRetry':
+    "Couldn't update the share link. Check your network and try again.",
+  'taskDetail.statusCascade.applyFailedRetry':
+    "Couldn't update the task status. Check your network and try again.",
 };

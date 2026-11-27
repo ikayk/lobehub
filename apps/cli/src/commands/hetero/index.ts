@@ -5,6 +5,7 @@ import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
+import { trackAgentCredentialRun } from '@lobechat/device-control/agent-credentials';
 import {
   HETEROGENEOUS_AGENT_CONFIGS,
   isLocalHeterogeneousType,
@@ -34,7 +35,6 @@ import {
   spawnAgent,
   spawnDshAcpSession,
 } from '@lobechat/heterogeneous-agents/spawn';
-import { isRecord } from '@lobechat/utils/object';
 import type { Command } from 'commander';
 
 import { getTrpcClient } from '../../api/client';
@@ -51,6 +51,7 @@ import type { HeteroCliArgumentOptions } from './buildExtraArgs';
 import { buildExtraArgs } from './buildExtraArgs';
 import { dispatchedModeSpawnOptions } from './dispatchedModes';
 import { type ResolvedPrompt, resolvePrompt } from './prompt';
+import { isMissingGrokResumeSession, looksLikeNeedsRetryWithoutResume } from './resumeRetry';
 
 const DSH_AGENT_TYPE = 'deepseek-harness';
 export const SUPPORTED_AGENT_TYPES = new Set<string>([
@@ -126,15 +127,14 @@ const spawnRuntimeRegistry: Partial<
 };
 
 /**
- * Spawn via the registered runtime factory, or the generic one-shot spawn.
- * `onRawStdout` (raw-dump tee) reaches both generic and registered runtimes;
- * RPC runtimes must install it before their eager handshake.
+ * Spawn native Codex, a registered runtime factory, or the generic one-shot spawn.
+ * `onRawStdout` (raw-dump tee) reaches all; RPC runtimes install it pre-handshake.
  */
 const spawnAgentOrRuntime = (
   spawnOpts: Parameters<typeof spawnAgent>[0],
   onRawStdout?: (chunk: Buffer) => void,
   onStartupControl?: (control: PiRpcStartupControl) => void,
-  nativeCodex?: boolean,
+  nativeCodex?: false | { onProcessGroupChange: (pgid: number, running: boolean) => void },
 ): Promise<Awaited<ReturnType<typeof spawnAgent>>> => {
   if (nativeCodex)
     return createCodexAgentHandle({
@@ -145,6 +145,7 @@ const spawnAgentOrRuntime = (
       commandPath: spawnOpts.command!,
       cwd: spawnOpts.cwd ?? process.cwd(),
       env: { ...process.env, ...spawnOpts.env },
+      onProcessGroupChange: nativeCodex.onProcessGroupChange,
       onRawStdout,
       onStartupControl,
       operationId: spawnOpts.operationId,
@@ -154,46 +155,6 @@ const spawnAgentOrRuntime = (
   const runtimeFactory = spawnRuntimeRegistry[spawnOpts.agentType as LocalHeterogeneousAgentType];
   if (runtimeFactory) return runtimeFactory(spawnOpts, { onRawStdout, onStartupControl });
   return spawnAgent({ ...spawnOpts, onRawStdout });
-};
-
-/**
- * Patterns that indicate a `--resume <sessionId>` run should be retried
- * without `--resume`.  Two classes of failure:
- *   1. Session file missing (sandbox recycled): the container is ephemeral
- *      (~1 h idle TTL), so a new sandbox has an empty `~/.claude/projects/`
- *      and the stored session id is stale.
- *   2. Context overflow (long conversation): the resumed session carries all
- *      accumulated history past the model's context window, so the API rejects
- *      the request right after CC initialises. Starting fresh (no `--resume`)
- *      drops the old history and lets CC respond to the new prompt alone.
- *
- * Checked against `error` stream events (from CC's result event) and, when CC
- * exits without a result event, the accumulated stderr output.
- */
-const RESUME_RETRY_PATTERNS = [
-  // Session file missing — sandbox was recycled
-  /no conversation found/i,
-  /session.*not found/i,
-  /conversation.*not found/i,
-  /resume.*not found/i,
-  // Codex reports a missing saved thread (exec and app-server alike) as
-  // "thread/resume failed: no rollout found for thread id <id>".
-  /no rollout found/i,
-  // Context overflow — API rejected the resumed session's accumulated history
-  /prompt.*too long/i,
-  /context.*too long/i,
-  /context window.*exceed/i,
-  /maximum.*context.*length/i,
-] as const;
-
-const looksLikeNeedsRetryWithoutResume = (text: string): boolean =>
-  RESUME_RETRY_PATTERNS.some((p) => p.test(text));
-
-const isMissingGrokResumeSession = (data: Record<string, unknown> | undefined): boolean => {
-  if (data?.agentType !== 'grok-build' || !isRecord(data.details)) return false;
-  const { details } = data;
-  const rpcData = details.data;
-  return details.method === 'session/load' && isRecord(rpcData) && rpcData.code === 'FS_NOT_FOUND';
 };
 
 interface ExecOptions extends HeteroCliArgumentOptions {
@@ -377,6 +338,10 @@ const exec = async (options: ExecOptions): Promise<void> => {
   // Set for the duration of each spawn attempt (see `runOneAgent`): stops the
   // running agent when the server tells us its output is being discarded.
   let abortForIngestLoss: ((error: Error) => void) | undefined;
+  // Set when the device's installed credential was replaced under this run:
+  // it is stopped (it could write the old login back) and fails with this.
+  let credentialStopReason: string | undefined;
+  let abortForCredentialStop: (() => void) | undefined;
   // Uploader for tool_result images (CC `Read` on an image file). Reuses the
   // CLI's authenticated lambda client so the persisted event carries a
   // `{ fileId, url }` reference instead of heavy base64. Only wired in
@@ -564,34 +529,32 @@ const exec = async (options: ExecOptions): Promise<void> => {
   let askBridge: AskUserBridge | undefined;
   let askMcpConfigPath: string | undefined;
   const askPollAbort = new AbortController();
-  if (
-    serverIngest &&
-    (agentType === 'claude-code' ||
-      (agentType === 'codex' && options.codexAppServer) ||
-      agentType === 'copilot' ||
-      agentType === 'cursor' ||
-      agentType === 'droid' ||
-      agentType === 'devin' ||
-      agentType === 'qoder') &&
-    serverIngester
-  ) {
-    if (
-      agentType === 'codex' ||
-      agentType === 'copilot' ||
-      agentType === 'cursor' ||
-      agentType === 'devin' ||
-      agentType === 'droid'
-    ) {
+  const mcpAskUserProvider =
+    agentType === 'claude-code' || agentType === 'qoder' ? agentType : undefined;
+  const nativeAskUserProvider =
+    agentType === 'antigravity' ||
+    (agentType === 'codex' && options.codexAppServer) ||
+    agentType === 'copilot' ||
+    agentType === 'cursor' ||
+    agentType === 'devin' ||
+    agentType === 'droid'
+      ? agentType
+      : undefined;
+  if (serverIngest && serverIngester && (mcpAskUserProvider || nativeAskUserProvider)) {
+    if (nativeAskUserProvider) {
       askBridge = new AskUserBridge(operationId, {
-        identifier: agentType === 'cursor' ? 'claude-code' : agentType,
-        provider: agentType,
+        identifier: nativeAskUserProvider === 'cursor' ? 'claude-code' : nativeAskUserProvider,
+        provider: nativeAskUserProvider,
       });
-    } else {
+    } else if (mcpAskUserProvider) {
       askServer = new LobeBuiltinMcpServer();
       await askServer.start();
       askBridge = askServer.registerOperation(
         operationId,
-        new AskUserBridge(operationId, { identifier: agentType, provider: agentType }),
+        new AskUserBridge(operationId, {
+          identifier: mcpAskUserProvider,
+          provider: mcpAskUserProvider,
+        }),
       );
       askMcpConfigPath = path.join(os.tmpdir(), `lobe-cc-mcp-${operationId}.json`);
       await writeFile(
@@ -779,7 +742,10 @@ const exec = async (options: ExecOptions): Promise<void> => {
     // desktop and connected-device dispatches are exactly the inherited case).
     // Native app-server owns a detached process even inside the connect wrapper group.
     const ownsSignalDelivery = () =>
-      options.codexAppServer || !inheritsWrapperProcessGroup || ingestLoss !== undefined;
+      options.codexAppServer ||
+      !inheritsWrapperProcessGroup ||
+      ingestLoss !== undefined ||
+      credentialStopReason !== undefined;
     const signalAgent = (signal: NodeJS.Signals) => {
       if (startupControl) cancelStartup(startupControl, signal);
       else handle?.kill(signal);
@@ -811,6 +777,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
       process.off('SIGINT', onSigint);
       process.off('SIGTERM', onSigterm);
       abortForIngestLoss = undefined;
+      abortForCredentialStop = undefined;
     };
     process.on('SIGINT', onSigint);
     process.on('SIGTERM', onSigterm);
@@ -821,6 +788,8 @@ const exec = async (options: ExecOptions): Promise<void> => {
       log.error('Server is discarding this run output, stopping the agent:', error.message);
       applyCancellation('SIGTERM');
     };
+    abortForCredentialStop = () => applyCancellation('SIGTERM');
+    if (credentialStopReason) abortForCredentialStop();
 
     // One raw-dump file pair per spawn attempt (the resume retry is a second
     // attempt). The stdout tee runs inside `spawnAgent` before the adapter.
@@ -841,7 +810,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
           // when the process group already delivered the signal itself.
           if (cancellationSignal) cancelStartup(control, cancellationSignal);
         },
-        options.codexAppServer,
+        options.codexAppServer && { onProcessGroupChange: credentialRun.setProcessGroup },
       );
       if (cancellationSignal && !startupControl) {
         // Same split as `applyCancellation`: when the wrapper does not own
@@ -859,7 +828,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
       }
       if (cancellationSignal) {
         return {
-          cancelled: !ingestLoss,
+          cancelled: !ingestLoss && !credentialStopReason,
           code: null,
           ingestError: ingestLoss !== undefined,
           resumeNotFound: false,
@@ -918,7 +887,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
       return { code: 1, signal: null as NodeJS.Signals | null };
     });
 
-    // Stream events (steering Claude Code or native Codex, see withHeteroSteer); each is optionally written as JSONL
+    // Stream events (steering Claude Code, native Codex or Antigravity, see withHeteroSteer); each is optionally written as JSONL
     // and pushed into the ingester. A resume `error` is withheld and flags a retry instead.
     let resumeNotFound = false;
     let sawTerminalError = false;
@@ -1072,15 +1041,35 @@ const exec = async (options: ExecOptions): Promise<void> => {
     // receives text while the process is running, not only the terminal assistant snapshot.
     includePartialMessages: options.type === 'claude-code',
     initialModel: usesHeterogeneousSessionInitialModel(options.type) ? options.model : undefined,
-    // Keep Claude Code's and Antigravity's stdin open while they can still use
-    // input (live steer / background tasks).
-    liveInput: options.type === 'claude-code' || options.type === 'antigravity',
+    // Keep Claude Code's stdin open while it can still use input: closing it
+    // early makes print mode kill background tasks after 10 minutes.
+    liveInput: options.type === 'claude-code',
     operationId,
-    // Better Coding Experience: Claude Code permission mode, Codex Plan switch.
+    // Claude Code permission mode, Codex Plan switch.
     ...dispatchedModeSpawnOptions(options.type, resolved),
     uploadImage,
   };
 
+  // Before the agent reads the credential, so a replacement can see this run.
+  const credentialRun = trackAgentCredentialRun({
+    env: process.env,
+    onStop: (reason) => {
+      credentialStopReason ??= reason;
+      log.error('Installed credential replaced, stopping the agent:', reason);
+      abortForCredentialStop?.();
+    },
+  });
+  const admissionError = await credentialRun.admitted.then(
+    () => undefined,
+    (error: Error) => buildFinishError(error.message, 'AgentRuntimeError'),
+  );
+  if (admissionError) {
+    // Never start an agent the installed credential's replacement cannot see.
+    log.error('Failed to start agent:', admissionError.message);
+    await traceRecorder.finalize({ error: admissionError, result: 'error' });
+    await sink?.finish({ error: admissionError, result: 'error' }).catch(() => {});
+    process.exit(1);
+  }
   const first = await runOneAgent(
     { ...spawnOptions, prompt: resolved.prompt, resumeSessionId: options.resume },
     interceptResume,
@@ -1101,7 +1090,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
   // fresh session.  The server's `heteroSessionId` is updated with the new id,
   // breaking the stale-session loop.
   let result = first;
-  if (!first.cancelled && !first.ingestError && first.resumeNotFound) {
+  if (!first.cancelled && !first.ingestError && !credentialStopReason && first.resumeNotFound) {
     log.info('Resume failed (session not found or context overflow) — retrying without --resume');
     result = await runOneAgent(
       // No resumeSessionId — start fresh
@@ -1112,6 +1101,8 @@ const exec = async (options: ExecOptions): Promise<void> => {
   }
 
   // ─── Drain + finish ───────────────────────────────────────────────────────
+  // The agent has exited; hold the lease until its app-server group has too.
+  await credentialRun.releaseAfterProcessGroups();
 
   const { code, signal, sessionId } = result;
 
@@ -1138,6 +1129,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
   const exitedClean =
     !result.cancelled &&
     !result.ingestError &&
+    !credentialStopReason &&
     !result.sawTerminalError &&
     (code === 0 || signal === 'SIGTERM');
 
@@ -1149,7 +1141,8 @@ const exec = async (options: ExecOptions): Promise<void> => {
   // Trim to the last 1 KB — the tail is most informative and keeps the tRPC
   // payload small.
   const stderrTail = result.stderrContent.trim();
-  const errorDetail = result.terminalErrorMessage || ingestErrorMessage || stderrTail;
+  const errorDetail =
+    credentialStopReason || result.terminalErrorMessage || ingestErrorMessage || stderrTail;
   // The adapter's in-stream classification (overloaded / rate_limit) already
   // carries the structured status-guide body — forward it verbatim instead of
   // re-deriving from the flattened message via the process-only classifier,
@@ -1158,7 +1151,7 @@ const exec = async (options: ExecOptions): Promise<void> => {
   const finishError =
     result.cancelled || exitedClean
       ? undefined
-      : result.terminalErrorData
+      : result.terminalErrorData && !credentialStopReason
         ? {
             body: { ...result.terminalErrorData },
             message: String(result.terminalErrorData.message ?? errorDetail ?? ''),
@@ -1206,7 +1199,10 @@ const exec = async (options: ExecOptions): Promise<void> => {
 
   if (code !== null) {
     const hasRunError =
-      finishDeliveryFailed || result.ingestError || (!result.cancelled && result.sawTerminalError);
+      finishDeliveryFailed ||
+      result.ingestError ||
+      !!credentialStopReason ||
+      (!result.cancelled && result.sawTerminalError);
     process.exit(hasRunError ? 1 : code);
   }
   if (signal === 'SIGINT') process.exit(130);

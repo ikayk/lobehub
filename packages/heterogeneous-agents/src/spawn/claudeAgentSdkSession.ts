@@ -24,11 +24,11 @@ import {
   resolveClaudeCodePermissionMode,
 } from '../claudeCodePermission';
 import { AgentStreamPipeline, type UploadHeterogeneousImage } from './agentStreamPipeline';
+import { CLAUDE_CODE_DISALLOWED_TOOLS } from './claudeCodeDisallowedTools';
 import { readClaudeCodeSessionCost } from './claudeCodeSessionCost';
 import { resolveCliSpawnPlan } from './cliSpawn';
 import { buildWslSpawnPlan, getSettledWslPathEnv, getWslPathEnv, parseWslCommand } from './wsl';
 
-const CLAUDE_SDK_DISALLOWED_TOOLS = ['AskUserQuestion', 'Monitor', 'ScheduleWakeup'] as const;
 const DEFAULT_INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000;
 const INPUT_CLOSE_POLL_MS = 1000;
 /** How often the input stream checks for a steered message to hand over. */
@@ -176,6 +176,7 @@ export interface HeterogeneousAgentRuntimeStatus {
   state: HeterogeneousAgentRuntimeState;
   transport:
     | 'acp-stdio'
+    | 'antigravity-acp'
     | 'claude-sdk'
     | 'cli-spawn'
     | 'codex-app-server'
@@ -209,9 +210,9 @@ export interface ClaudeAgentSdkSessionOptions {
   onStderr: (data: string) => Promise<void> | void;
   operationId: string;
   /**
-   * Better Coding Experience permission mode. With `askUserBridge`, Claude
-   * Code asks through `canUseTool` and each request raises a card; absent,
-   * every action is allowed as before the lab.
+   * Claude Code permission mode. With `askUserBridge`, Claude Code asks
+   * through `canUseTool` and each request raises a card; absent, every action
+   * is allowed.
    */
   permissionMode?: HeteroPermissionMode;
   /**
@@ -438,7 +439,7 @@ export class ClaudeAgentSdkSession {
       ...this.buildPermissionOptions(),
       abortController: this.abortController,
       cwd: this.options.cwd,
-      disallowedTools: [...CLAUDE_SDK_DISALLOWED_TOOLS],
+      disallowedTools: [...CLAUDE_CODE_DISALLOWED_TOOLS],
       env: this.options.env,
       includePartialMessages: true,
       pathToClaudeCodeExecutable: executablePath,

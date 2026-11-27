@@ -49,6 +49,7 @@ import HeterogeneousAgentCtr from './HeterogeneousAgentCtr';
 import { ControllerModule, createProtocolHandler, IpcMethod } from './index';
 import LocalFileCtr from './LocalFileCtr';
 import McpCtr from './McpCtr';
+import { executeMcpGatewayCall } from './mcpGatewayCall';
 import RemoteServerConfigCtr from './RemoteServerConfigCtr';
 import ShellCommandCtr from './ShellCommandCtr';
 
@@ -311,8 +312,7 @@ export default class GatewayConnectionCtr extends ControllerModule {
     hostname: string;
     platform: string;
   }> {
-    // Signed in, report the stable id the gateway registers — not the pre-connect
-    // fallback — so the renderer's "this device" matches the pins it writes.
+    // Report the gateway's stable id, not the pre-connect fallback, so "this device" matches pins.
     const stableId = await this.service.resolveCurrentDeviceId().catch(() => undefined);
     const info = { ...this.service.getDeviceInfo(), ...(stableId && { deviceId: stableId }) };
     try {
@@ -328,6 +328,7 @@ export default class GatewayConnectionCtr extends ControllerModule {
           deviceId: info.deviceId,
           headers,
           serverUrl,
+          userId: this.remoteServerConfigCtr.getDesktopBootstrapIdentity().userId,
         });
       }
     } catch (error) {
@@ -569,26 +570,7 @@ export default class GatewayConnectionCtr extends ControllerModule {
     identifier: string;
     params: GatewayMcpParams;
   }): Promise<BuiltinServerRuntimeOutput> {
-    const { apiName, arguments: args, params } = mcpCall;
-
-    if (params.type === 'http') {
-      return this.mcpCtr.runHttpMcpTool(
-        { auth: params.auth, headers: params.headers, name: params.name, url: params.url },
-        apiName,
-        args,
-      );
-    }
-
-    return this.mcpCtr.runStdioMcpTool({
-      args,
-      env: params.env,
-      params: {
-        args: params.args,
-        command: params.command,
-        name: params.name,
-      },
-      toolName: apiName,
-    });
+    return executeMcpGatewayCall(this.mcpCtr, mcpCall);
   }
 
   private async executeMessageApi(

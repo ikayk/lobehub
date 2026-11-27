@@ -2368,6 +2368,15 @@ export type TaskDetail = {
     agentId?: string | null;
     archivedAt?: string | null;
     automationMode?: 'heartbeat' | 'schedule' | null;
+    channelDelivery?: {
+        channelId: string;
+        lastError?: {
+            at: string;
+            code: 'channel_unavailable';
+            message?: string;
+        } | null;
+        threadId?: string | null;
+    };
     checkpoint?: {
         onAgentRequest?: boolean;
         tasks?: {
@@ -12945,6 +12954,18 @@ export type PostApiV1ResponsesErrors = {
         requestId: string;
     };
     /**
+     * Resource not found
+     */
+    404: {
+        error: {
+            code: 'bad_request' | 'conflict' | 'forbidden' | 'idempotency_conflict' | 'insufficient_scope' | 'internal_error' | 'not_found' | 'payload_too_large' | 'payment_required' | 'precondition_failed' | 'rate_limited' | 'service_unavailable' | 'unauthorized' | 'unprocessable_entity' | 'upstream_error' | 'validation_error' | 'workspace_mismatch';
+            message: string;
+            param: string | null;
+            type: 'invalid_request_error' | 'not_found' | 'rate_limit_error' | 'server_error';
+        };
+        requestId: string;
+    };
+    /**
      * Rate limit exceeded
      */
     429: {
@@ -15708,10 +15729,25 @@ export type PostApiV1TextGenerationsData = {
          */
         messages?: Array<{
             /**
+             * Plain text, or text and image parts (OpenAI chat format) for a model that takes images. An image is an http(s) URL or a base64 `data:image/...` URL.
+             */
+            content: string | Array<{
+                text: string;
+                type: 'text';
+            } | {
+                image_url: {
+                    detail?: 'auto' | 'low' | 'high';
+                    url: string;
+                };
+                type: 'image_url';
+            }>;
+            role: 'user';
+        } | {
+            /**
              * Plain-text message content.
              */
             content: string;
-            role: 'system' | 'user' | 'assistant';
+            role: 'system' | 'assistant';
         }>;
         /**
          * Model id. Omit to use the platform's default chat model.
@@ -15828,10 +15864,25 @@ export type PostApiV1ObjectsGenerationsData = {
          */
         messages?: Array<{
             /**
+             * Plain text, or text and image parts (OpenAI chat format) for a model that takes images. An image is an http(s) URL or a base64 `data:image/...` URL.
+             */
+            content: string | Array<{
+                text: string;
+                type: 'text';
+            } | {
+                image_url: {
+                    detail?: 'auto' | 'low' | 'high';
+                    url: string;
+                };
+                type: 'image_url';
+            }>;
+            role: 'user';
+        } | {
+            /**
              * Plain-text message content.
              */
             content: string;
-            role: 'system' | 'user' | 'assistant';
+            role: 'system' | 'assistant';
         }>;
         /**
          * Model id. Omit to use the platform's default chat model.

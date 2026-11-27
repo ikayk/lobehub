@@ -5,7 +5,6 @@ import {
   ActionIcon,
   Alert,
   Button,
-  confirmModal,
   CopyButton,
   Flexbox,
   Icon,
@@ -21,6 +20,7 @@ import { useTranslation } from 'react-i18next';
 
 import SkeletonBar from '@/components/Skeleton/Bar';
 
+import { confirmCredModal } from '../confirmCredModal';
 import { type CredsApi } from '../useCredsApi';
 
 // The theme's card border (light: colorFill, dark: colorFillSecondary), the
@@ -82,14 +82,16 @@ const MASK = '••••••••••••';
 interface FieldRowProps {
   children: ReactNode;
   extra?: ReactNode;
+  /** Let a long label (`Credential Values`) take the width it needs, like a value name. */
+  fitLabel?: boolean;
   label: ReactNode;
   mono?: boolean;
 }
 
-const FieldRow: FC<FieldRowProps> = ({ children, extra, label, mono }) => (
+const FieldRow: FC<FieldRowProps> = ({ children, extra, fitLabel, label, mono }) => (
   <div {...stylex.props(styles.row)}>
     <div
-      {...stylex.props(styles.label, mono && styles.code, mono && styles.labelFit)}
+      {...stylex.props(styles.label, mono && styles.code, (mono || fitLabel) && styles.labelFit)}
       title={mono && typeof label === 'string' ? label : undefined}
     >
       {label}
@@ -102,7 +104,8 @@ const FieldRow: FC<FieldRowProps> = ({ children, extra, label, mono }) => (
 /** One stored value: masked until revealed, copyable either way. */
 const SecretRow: FC<{ name: string; value: string }> = ({ name, value }) => {
   const { t } = useTranslation('setting');
-  const [visible, setVisible] = useState(false);
+  // Rows appear only after the viewer asked to see the values.
+  const [visible, setVisible] = useState(true);
 
   return (
     <FieldRow
@@ -129,7 +132,7 @@ const SecretRow: FC<{ name: string; value: string }> = ({ name, value }) => {
 
 /** A row-specific action (share, publish, unshare…) offered in the detail footer. */
 export interface CredDetailAction {
-  /** Danger actions sit on the left beside Remove; the rest before Edit. */
+  /** Danger actions sit on the left beside Remove (red fill); the rest before Edit. */
   danger?: boolean;
   icon?: LucideIcon;
   key: string;
@@ -144,32 +147,47 @@ export interface ViewCredModalContentProps {
   canReadValues?: boolean;
   cred: UserCredSummary;
   credsApi: CredsApi;
+  /** Host-specific fields after the item's own, e.g. the workspace visibility and owner. */
+  extraItems?: CredDetailItem[];
   /** Removes the item after a confirmation; no Remove button when omitted. */
   onDelete?: (id: number) => Promise<unknown>;
   /** Opens the edit form; no Edit button when omitted. */
   onEdit?: (cred: UserCredSummary) => void;
+  /** Shown instead of the values when they exist but may not be read (write-only). */
+  valuesHint?: string;
+}
+
+/** One extra field row in the detail. */
+export interface CredDetailItem {
+  children: ReactNode;
+  key: string;
+  label: ReactNode;
 }
 
 /**
  * A vault item opened from its row: its fields as one bordered list (a
  * key-value item's stored values included, masked), with Remove on the left of
- * the footer and Edit / Done on the right.
+ * the footer and Edit / Done on the right. Every button but Done is the fill variant.
  */
 const ViewCredModalContent: FC<ViewCredModalContentProps> = ({
   actions = [],
   canReadValues = false,
   cred,
   credsApi,
+  extraItems = [],
   onDelete,
   onEdit,
+  valuesHint,
 }) => {
   const { t } = useTranslation('setting');
   const { close } = useModalContext();
   const isKV = cred.type === 'kv-env' || cred.type === 'kv-header';
   const showValues = isKV && canReadValues;
+  // Plaintext is decrypted only once the viewer asks for it, not on open.
+  const [revealed, setRevealed] = useState(false);
 
   const { data, isLoading, error } = useQuery({
-    enabled: showValues,
+    enabled: showValues && revealed,
     queryFn: () => credsApi.client.get.query({ decrypt: true, id: cred.id }),
     queryKey: ['cred-plaintext', cred.id],
   });
@@ -178,9 +196,9 @@ const ViewCredModalContent: FC<ViewCredModalContentProps> = ({
 
   const handleRemove = () => {
     if (!onDelete) return;
-    confirmModal({
+    confirmCredModal({
       content: t('creds.actions.deleteConfirm.content'),
-      okButtonProps: { danger: true },
+      danger: true,
       okText: t('creds.actions.deleteConfirm.ok'),
       onOk: async () => {
         try {
@@ -204,7 +222,7 @@ const ViewCredModalContent: FC<ViewCredModalContentProps> = ({
       danger={action.danger}
       icon={action.icon ? <Icon icon={action.icon} /> : undefined}
       key={action.key}
-      type={action.danger ? 'text' : 'fill'}
+      type={'fill'}
       onClick={runAction(action)}
     >
       {action.label}
@@ -220,20 +238,44 @@ const ViewCredModalContent: FC<ViewCredModalContentProps> = ({
     <>
       <div {...stylex.props(styles.fields)}>
         <FieldRow label={t('creds.table.type')}>{t(`creds.types.${cred.type}`)}</FieldRow>
-        <FieldRow label={t('creds.table.key')}>
-          <span {...stylex.props(styles.code)}>{cred.key}</span>
-        </FieldRow>
         {cred.type === 'oauth' && cred.oauthUsername && (
           <FieldRow label={t('creds.detail.account')}>{cred.oauthUsername}</FieldRow>
         )}
         {cred.type === 'file' && cred.fileName && (
           <FieldRow label={t('creds.form.file')}>{cred.fileName}</FieldRow>
         )}
+        {extraItems.map((item) => (
+          <FieldRow key={item.key} label={item.label}>
+            {item.children}
+          </FieldRow>
+        ))}
         {cred.description && (
           <FieldRow label={t('creds.form.description')}>{cred.description}</FieldRow>
         )}
+        {isKV && !showValues && valuesHint && (
+          <FieldRow fitLabel label={t('creds.view.values')}>
+            {valuesHint}
+          </FieldRow>
+        )}
         {showValues &&
-          (isLoading ? (
+          (!revealed ? (
+            <FieldRow
+              fitLabel
+              label={t('creds.view.values')}
+              extra={
+                <Button
+                  icon={<Icon icon={Eye} />}
+                  size={'small'}
+                  type={'text'}
+                  onClick={() => setRevealed(true)}
+                >
+                  {t('creds.view.showValues')}
+                </Button>
+              }
+            >
+              <span {...stylex.props(styles.code, styles.masked)}>{MASK}</span>
+            </FieldRow>
+          ) : isLoading ? (
             <FieldRow label={<SkeletonBar height={12} width={72} />}>
               <SkeletonBar height={12} width={160} />
             </FieldRow>
@@ -255,9 +297,9 @@ const ViewCredModalContent: FC<ViewCredModalContentProps> = ({
       )}
 
       <div {...stylex.props(styles.footer)}>
-        <Flexbox horizontal align={'center'} gap={4}>
+        <Flexbox horizontal align={'center'} gap={8}>
           {onDelete && (
-            <Button danger type={'text'} onClick={handleRemove}>
+            <Button danger type={'fill'} onClick={handleRemove}>
               {t('creds.actions.remove')}
             </Button>
           )}

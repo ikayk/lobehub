@@ -1,3 +1,4 @@
+import type { McpElicitationCall } from '@lobechat/mcp-elicitation/types';
 import type {
   CodexCollaborationMode,
   DeviceMetricSample,
@@ -174,6 +175,7 @@ export interface AuthExpiredMessage {
 export interface GatewayMcpStdioParams {
   args: string[];
   command: string;
+  elicitation?: McpElicitationCall;
   env?: Record<string, string>;
   name: string;
   type: 'stdio';
@@ -187,6 +189,7 @@ export interface GatewayMcpStdioParams {
  */
 export interface GatewayMcpHttpParams {
   auth?: { accessToken?: string; token?: string; type: 'none' | 'bearer' | 'oauth2' };
+  elicitation?: McpElicitationCall;
   headers?: Record<string, string>;
   name: string;
   type: 'http';
@@ -350,7 +353,7 @@ export interface AgentRunRequestMessage {
    */
   claudeCodeEntrypoint?: string;
   /**
-   * Codex Plan switch (Better Coding Experience lab), forwarded into the same
+   * Codex Plan switch, forwarded into the same
    * envelope. Sent only to a device advertising `codex-collaboration-mode-v1`.
    */
   collaborationMode?: CodexCollaborationMode;
@@ -377,7 +380,7 @@ export interface AgentRunRequestMessage {
    * older deployments safely degrade to a fresh retry without recovery history.
    */
   /**
-   * Claude Code permission mode (Better Coding Experience lab), forwarded into
+   * Claude Code permission mode, forwarded into
    * the `lh hetero exec` input envelope. Absent: every action is allowed.
    */
   permissionMode?: HeteroPermissionMode;

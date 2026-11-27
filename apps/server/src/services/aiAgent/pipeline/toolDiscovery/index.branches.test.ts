@@ -427,6 +427,45 @@ describe('discoverTools — connector discovery', () => {
     expect(result.agentPlugins).toContain('community-mcp');
   });
 
+  it('keeps tools and @agent delegation from earlier turns in the topic enabled on follow-up turns', async () => {
+    const result = await run({
+      ...sources,
+      input: {
+        loadHistoryMessages: vi.fn().mockResolvedValue([
+          {
+            content: '<mention name="Writer" id="agt_writer" /> Hello',
+            metadata: { selectedToolIds: ['community-mcp', 'lobe-agent-management'] },
+            role: 'user',
+          },
+          { content: 'How can I help?', role: 'assistant' },
+        ]),
+      },
+    }).promise;
+
+    expect(engineInstalledIds()).toEqual(['community-mcp']);
+    expect(result.agentPlugins).toEqual(
+      expect.arrayContaining(['community-mcp', 'lobe-agent-management']),
+    );
+  });
+
+  it('does not leak supervisor @-mentioned connectors from shared group history into an in-group member turn', async () => {
+    const result = await run({
+      ...sources,
+      appContext: { groupId: 'group-1', orchestrationRole: 'member' },
+      input: {
+        loadHistoryMessages: vi.fn().mockResolvedValue([
+          {
+            metadata: { selectedToolIds: ['community-mcp'] },
+            role: 'user',
+          },
+          { content: 'Delegating to member', role: 'assistant' },
+        ]),
+      },
+    }).promise;
+
+    expect(result.agentPlugins).not.toContain('community-mcp');
+  });
+
   it('leaves an exact toolset untouched by the agent switches', async () => {
     const result = await run({
       ...sources,
@@ -676,6 +715,29 @@ describe('discoverTools — credential snapshot', () => {
   });
 });
 
+it.each(['http', 'stdio'] as const)(
+  'keeps server-owned installed-plugin %s configuration through discovery and executor selection',
+  async (type) => {
+    const connection =
+      type === 'http'
+        ? { type, url: 'https://example.test/mcp', headers: { tenant: 'one' } }
+        : { type, command: 'fixture', args: ['--stdio'] };
+    const result = await run({
+      agentConfig: { plugins: ['installed-mcp'] },
+      installedPlugins: [
+        {
+          identifier: 'installed-mcp',
+          customParams: { mcp: connection },
+          manifest: { ...skillManifest('installed-mcp'), type: 'mcp' },
+        },
+      ],
+    }).promise;
+    expect(result.toolManifestMap['installed-mcp']).toMatchObject({
+      mcpParams: { ...connection, name: 'installed-mcp' },
+    });
+    if (type === 'stdio') expect(result.toolExecutorMap['installed-mcp']).toBe('client');
+  },
+);
 describe('discoverTools — exact eval mock bindings', () => {
   it.each(['notion', 'lobe-web-browsing'])(
     'replaces ordinary manifests for bound alias %s and skips identifier resolution',
