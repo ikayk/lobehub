@@ -15,20 +15,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - name: 1. Checkout Code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: 2. Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v6
       with:
         node-version: 24
 
     - name: 3. Setup Bun
-      uses: oven-sh/setup-bun@v2
+      uses: oven-sh/setup-bun@v3
       with:
         bun-version: latest
 
     - name: 4. Setup PNPM
-      uses: pnpm/action-setup@v3
+      uses: pnpm/action-setup@v4
       with:
         version: latest
 
