@@ -23,7 +23,7 @@ jobs:
         node-version: 24
 
     - name: 3. Setup Bun
-      uses: oven-sh/setup-bun@v3
+      uses: oven-sh/setup-bun@v2
       with:
         bun-version: latest
 
